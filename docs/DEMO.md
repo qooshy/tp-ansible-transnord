@@ -126,6 +126,13 @@ Si la démo 2 a été interrompue :
 bash ../scripts/deploy playbooks/demo/retablir-liaison.yml
 ```
 
+Enfin, tout éteindre proprement (sur le PC, dans le dossier du projet). Chaque
+serveur s'arrête normalement, bases de données comprises ; rien n'est perdu :
+```bash
+vagrant halt
+```
+Pour tout rallumer plus tard : `vagrant up --no-provision`, puis `verifier.yml`.
+
 ---
 
 ## 4. Autres scénarios disponibles (questions du jury)
