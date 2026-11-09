@@ -1,0 +1,6 @@
+# Géré par Ansible - copie de tous les journaux vers {{ log_server }}.
+# File d'attente sur disque : si le réseau est coupé, rien n'est perdu.
+*.* action(type="omfwd" target="{{ log_server }}" port="514" protocol="tcp"
+           queue.type="LinkedList" queue.filename="fwd_central"
+           queue.maxDiskSpace="512m" queue.saveOnShutdown="on"
+           action.resumeRetryCount="-1")

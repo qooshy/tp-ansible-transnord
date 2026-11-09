@@ -1,0 +1,42 @@
+- name: "{{ cert.name }} : clé privée"
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/{{ cert.name }}.key"
+    type: RSA
+    size: 2048
+    mode: "0600"
+    owner: "{{ pki_owner }}"
+
+- name: "{{ cert.name }} : demande de certificat"
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/{{ cert.name }}.key"
+    common_name: "{{ cert.cn }}"
+    organization_name: "{{ org_name }}"
+    subject_alt_name: "{{ cert.sans }}"
+    extended_key_usage: [serverAuth, clientAuth]
+    key_usage: [digitalSignature, keyEncipherment]
+  register: svc_csr
+  changed_when: false
+
+- name: "{{ cert.name }} : certificat signé (2 ans, renouvelé à 30 jours de l'échéance)"
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/{{ cert.name }}.crt"
+    csr_content: "{{ svc_csr.csr }}"
+    provider: ownca
+    ownca_path: "{{ pki_dir }}/{{ ca_cert_name }}.crt"
+    ownca_privatekey_path: "{{ pki_dir }}/{{ ca_cert_name }}.key"
+    ownca_not_after: "+730d"
+    ignore_timestamps: false
+    mode: "0644"
+    owner: "{{ pki_owner }}"
+
+- name: "{{ cert.name }} : paquet PKCS#12 (pour Windows)"
+  community.crypto.openssl_pkcs12:
+    path: "{{ pki_dir }}/{{ cert.name }}.pfx"
+    privatekey_path: "{{ pki_dir }}/{{ cert.name }}.key"
+    certificate_path: "{{ pki_dir }}/{{ cert.name }}.crt"
+    other_certificates: ["{{ pki_dir }}/{{ ca_cert_name }}.crt"]
+    friendly_name: "{{ cert.cn }}"
+    passphrase: "{{ vault_ad_admin_password }}"
+    mode: "0600"
+    owner: "{{ pki_owner }}"
+  when: cert.pfx | default(false)

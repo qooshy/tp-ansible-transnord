@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block content %}
+<form class="card login" method="post">
+  <h1>Connexion</h1>
+  <p class="muted">Votre identifiant unique (salarié ou prestataire).</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <label>Identifiant <input name="login" autocomplete="username" autofocus required></label>
+  <label>Mot de passe <input name="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit">Se connecter</button>
+</form>
+{% endblock %}

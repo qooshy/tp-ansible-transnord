@@ -1,0 +1,23 @@
+- name: Redémarrer chrony
+  ansible.builtin.service: { name: chrony, state: restarted }
+
+- name: Mettre à jour les autorités
+  ansible.builtin.command: update-ca-certificates
+  changed_when: true
+
+- name: Recharger sshd
+  ansible.builtin.service: { name: ssh, state: reloaded }
+
+- name: Recharger auditd
+  ansible.builtin.command: augenrules --load
+  changed_when: true
+
+- name: Redémarrer auditd
+  ansible.builtin.command: service auditd restart   # auditd refuse "systemctl restart"
+  changed_when: true
+
+- name: Redémarrer rsyslog
+  ansible.builtin.service: { name: rsyslog, state: restarted }
+
+- name: Recharger nftables
+  ansible.builtin.service: { name: nftables, state: reloaded }

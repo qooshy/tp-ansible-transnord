@@ -1,0 +1,11 @@
+# DÉMONSTRATION : rétablit la liaison Lille <-> Dunkerque.
+- name: Rétablissement de la liaison inter-sites
+  hosts: site_lille
+  gather_facts: false
+  tasks:
+    - name: Linux - supprimer le blocage
+      ansible.builtin.command: nft delete table inet demo_coupure
+      register: r
+      failed_when: r.rc != 0 and 'No such file' not in r.stderr
+      changed_when: r.rc == 0
+

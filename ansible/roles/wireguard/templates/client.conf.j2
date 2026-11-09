@@ -1,0 +1,12 @@
+# Accès VPN de {{ item.0.prenom }} {{ item.0.nom }} - à importer dans l'application WireGuard.
+# Ensuite : ssh {{ item.0.identifiant }}@{{ inventory_hostname }}.{{ domain_fqdn }} (mot de passe AD)
+[Interface]
+PrivateKey = {{ wg_priv['/etc/wireguard/clients/' ~ item.0.identifiant ~ '.key'] }}
+Address = {{ vpn_prefix }}.{{ 10 + item.1 }}/32
+DNS = {{ dns_servers | join(', ') }}
+
+[Peer]
+PublicKey = {{ wg_pub['/etc/wireguard/serveur.key'] }}
+Endpoint = {{ vpn_public_endpoint }}
+AllowedIPs = {{ lab_cidr }}
+PersistentKeepalive = 25

@@ -1,0 +1,72 @@
+# Supervision : Prometheus mesure, Alertmanager prévient (e-mail), Grafana montre.
+# Objectif : l'équipe est prévenue AVANT que les clients appellent.
+- name: Paquets de supervision (dépôts Debian)
+  ansible.builtin.apt:
+    name: [prometheus, prometheus-alertmanager, prometheus-blackbox-exporter, gpg]
+    state: present
+
+- name: Sondes (blackbox)
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: /etc/prometheus/blackbox.yml
+    mode: "0644"
+  notify: Redémarrer blackbox
+
+- name: Les sondes peuvent faire un "ping" sans droits administrateur
+  ansible.posix.sysctl:
+    name: net.ipv4.ping_group_range
+    value: "0 2147483647"
+    sysctl_file: /etc/sysctl.d/60-ping.conf
+
+- name: Dossier des règles d'alerte
+  ansible.builtin.file:
+    path: /etc/prometheus/rules
+    state: directory
+    mode: "0755"
+
+- name: Règles d'alerte
+  ansible.builtin.template:
+    src: alertes.yml.j2
+    dest: /etc/prometheus/rules/transnord.yml
+    mode: "0644"
+    validate: promtool check rules %s
+  notify: Recharger prometheus
+
+- name: Cibles surveillées
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    mode: "0644"
+    validate: promtool check config --syntax-only %s
+  notify: Recharger prometheus
+
+- name: Conservation des mesures (1 an)
+  ansible.builtin.lineinfile:
+    path: /etc/default/prometheus
+    regexp: '^ARGS='
+    line: 'ARGS="--storage.tsdb.retention.time=365d --web.enable-lifecycle"'
+  notify: Redémarrer prometheus
+
+- name: Envoi des alertes par e-mail
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/prometheus/alertmanager.yml
+    mode: "0644"
+  notify: Redémarrer alertmanager
+
+- name: Boîte mail du labo (Mailpit) - en production, le serveur mail de l'entreprise
+  ansible.builtin.import_tasks: mailpit.yml
+
+- name: Tableaux de bord (Grafana)
+  ansible.builtin.import_tasks: grafana.yml
+
+- name: Journaux centralisés
+  ansible.builtin.import_tasks: logserver.yml
+
+- name: Services démarrés
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: [prometheus, prometheus-alertmanager, prometheus-blackbox-exporter, grafana-server, mailpit]

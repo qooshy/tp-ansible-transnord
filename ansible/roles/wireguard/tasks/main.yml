@@ -1,0 +1,90 @@
+# VPN WireGuard : les informaticiens interviennent de chez eux, la nuit ou le
+# week-end. Un accès VPN par informaticien ; la liste vient du fichier RH :
+# quelqu'un qui quitte le service informatique perd son accès au prochain passage.
+- name: WireGuard
+  ansible.builtin.apt:
+    name: [wireguard-tools, qrencode]
+    state: present
+
+- name: Routage des connexions VPN vers le réseau serveurs
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-vpn.conf
+
+- name: Dossiers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: [/etc/wireguard, /etc/wireguard/clients]
+
+- name: Clé du serveur VPN
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/serveur.key
+  args:
+    creates: /etc/wireguard/serveur.key
+
+- name: Clés des informaticiens
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/clients/{{ item.identifiant }}.key
+  args:
+    creates: "/etc/wireguard/clients/{{ item.identifiant }}.key"
+  loop: "{{ vpn_users }}"
+  loop_control: { label: "{{ item.identifiant }}" }
+
+- name: Clés publiques
+  ansible.builtin.shell: wg pubkey < {{ item }}
+  loop: "{{ ['/etc/wireguard/serveur.key'] + (vpn_users | map(attribute='identifiant') | map('regex_replace', '^(.*)$', '/etc/wireguard/clients/\\1.key') | list) }}"
+  register: pubkeys
+  changed_when: false
+
+- name: Clés privées des informaticiens (pour leur fiche de connexion)
+  ansible.builtin.slurp:
+    src: "/etc/wireguard/clients/{{ item.identifiant }}.key"
+  loop: "{{ vpn_users }}"
+  loop_control: { label: "{{ item.identifiant }}" }
+  register: privkeys
+  no_log: true
+
+- name: Index des clés
+  ansible.builtin.set_fact:
+    wg_pub: "{{ dict(pubkeys.results | map(attribute='item') | zip(pubkeys.results | map(attribute='stdout'))) }}"
+    wg_priv: "{{ dict(privkeys.results | map(attribute='source') | zip(privkeys.results | map(attribute='content') | map('b64decode') | map('trim'))) }}"
+  no_log: true
+
+- name: Configuration du serveur VPN
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+  notify: Recharger le VPN
+
+- name: Fiche de connexion de chaque informaticien (+ QR code pour téléphone)
+  ansible.builtin.template:
+    src: client.conf.j2
+    dest: "/etc/wireguard/clients/{{ item.0.identifiant }}.conf"
+    mode: "0600"
+  loop: "{{ vpn_users | zip(range(vpn_users | length)) | list }}"
+  loop_control: { label: "{{ item.0.identifiant }}" }
+  register: client_confs
+
+- name: QR code (pour l'application WireGuard du téléphone)
+  ansible.builtin.shell: qrencode -t PNG -o /etc/wireguard/clients/{{ item.item.0.identifiant }}.png < {{ item.dest }}
+  loop: "{{ client_confs.results | selectattr('changed') | list }}"
+  loop_control: { label: "{{ item.item.0.identifiant }}" }
+
+- name: Supprimer les accès des personnes qui ne sont plus au service informatique
+  ansible.builtin.shell: |
+    cd /etc/wireguard/clients
+    for f in *.conf *.key *.png; do
+      [ -e "$f" ] || continue
+      id="${f%.*}"
+      case " {{ vpn_users | map(attribute='identifiant') | join(' ') }} " in *" $id "*) ;; *) rm -f "$f"; echo "$id";; esac
+    done
+  register: vpn_revoked
+  changed_when: vpn_revoked.stdout | length > 0
+
+- name: VPN démarré
+  ansible.builtin.service:
+    name: wg-quick@wg0
+    enabled: true
+    state: started

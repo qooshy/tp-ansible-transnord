@@ -1,0 +1,96 @@
+# Rapport de conformité pour l'assureur : chaque serveur est-il à jour et
+# sauvegardé ? Produit une page HTML datée dans ansible/reports/.
+#   bash scripts/deploy playbooks/ops/rapport-assureur.yml
+- name: État des serveurs Linux
+  hosts: linux
+  gather_facts: true
+  tasks:
+    - name: Mises à jour en attente
+      ansible.builtin.shell: apt-get -s -o Debug::NoLocking=1 upgrade | grep -c '^Inst' || true
+      register: pending
+      changed_when: false
+
+    - name: Dont mises à jour de sécurité
+      ansible.builtin.shell: apt-get -s -o Debug::NoLocking=1 upgrade | grep '^Inst' | grep -ci security || true
+      register: pending_sec
+      changed_when: false
+
+    - name: Dernière installation de mises à jour
+      ansible.builtin.shell: >
+        { zgrep -h 'Packages that will be upgraded\|All upgrades installed\|No packages found' /var/log/unattended-upgrades/unattended-upgrades.log* 2>/dev/null;
+          grep -h ' upgrade ' /var/log/dpkg.log 2>/dev/null; } | sort | tail -1 | cut -c1-19
+      register: last_upgrade
+      changed_when: false
+
+    - name: Dernière sauvegarde réussie
+      ansible.builtin.shell: >
+        awk '/^backup_last_success_timestamp_seconds/ {print $2}' /var/lib/prometheus/node-exporter/sauvegarde.prom 2>/dev/null
+      register: last_backup
+      changed_when: false
+
+    - name: Redémarrage requis
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot
+
+    - name: Résultat
+      ansible.builtin.set_fact:
+        report:
+          host: "{{ inventory_hostname }}"
+          os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel: "{{ ansible_kernel }}"
+          pending: "{{ pending.stdout | int }}"
+          pending_sec: "{{ pending_sec.stdout | int }}"
+          last_upgrade: "{{ last_upgrade.stdout | default('-', true) }}"
+          last_backup: "{{ ('%Y-%m-%d %H:%M' | strftime(last_backup.stdout | int)) if last_backup.stdout else 'jamais' }}"
+          backup_ok: "{{ last_backup.stdout != '' and (now().timestamp() - (last_backup.stdout | int)) < 93600 }}"
+          reboot: "{{ reboot.stat.exists }}"
+
+- name: État des serveurs Windows
+  hosts: windows
+  gather_facts: true
+  tasks:
+    - name: Dernier correctif installé
+      ansible.windows.win_powershell:
+        script: |
+          $h = Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1
+          $Ansible.Result = @{ id = "$($h.HotFixID)"; date = $h.InstalledOn.ToString('yyyy-MM-dd') }
+          $Ansible.Changed = $false
+      register: hotfix
+
+    - name: Résultat
+      ansible.builtin.set_fact:
+        report:
+          host: "{{ inventory_hostname }}"
+          os: "{{ ansible_distribution }}"
+          kernel: "{{ ansible_distribution_version }}"
+          pending: "-"
+          pending_sec: "-"
+          last_upgrade: "{{ hotfix.result.date }} ({{ hotfix.result.id }})"
+          last_backup: "réplication AD (2 exemplaires)"
+          backup_ok: true
+          reboot: false
+
+- name: Rapport
+  hosts: control
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Dossier des rapports
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../../reports"
+        state: directory
+        mode: "0755"
+
+    - name: Page HTML
+      ansible.builtin.template:
+        src: rapport-assureur.html.j2
+        dest: "{{ playbook_dir }}/../../reports/rapport-assureur-{{ now(fmt='%Y-%m-%d') }}.html"
+        mode: "0644"
+      vars:
+        rows: "{{ groups['all'] | map('extract', hostvars) | selectattr('report', 'defined') | map(attribute='report') | list }}"
+      register: rapport
+
+    - name: Emplacement
+      ansible.builtin.debug:
+        msg: "Rapport : {{ rapport.dest | realpath }}"

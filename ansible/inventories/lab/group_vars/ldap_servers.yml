@@ -1,0 +1,3 @@
+firewall_allow:
+  - { port: 636, from: "{{ lab_cidr }}", comment: "LDAPS" }
+  - { port: 389, from: "{{ lab_cidr }}", comment: "LDAP + StartTLS obligatoire" }

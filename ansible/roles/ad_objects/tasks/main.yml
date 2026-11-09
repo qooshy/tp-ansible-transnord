@@ -1,0 +1,37 @@
+# Contenu de l'annuaire, entièrement décrit par le code et par le fichier RH
+# personnel.csv. Exécuté sur le premier DC : l'AD réplique vers les autres.
+- name: Outil de synchronisation de l'annuaire
+  ansible.builtin.copy:
+    src: ad-sync.py
+    dest: /usr/local/sbin/ad-sync
+    mode: "0750"
+
+- name: État voulu de l'annuaire (calculé depuis personnel.csv)
+  ansible.builtin.copy:
+    dest: /root/ad-etat-voulu.json
+    mode: "0600"
+    content: "{{ ad_desired | to_nice_json }}"
+  no_log: true
+
+- name: Appliquer (création, changement de poste, départ, groupes)
+  ansible.builtin.command: /usr/local/sbin/ad-sync /root/ad-etat-voulu.json
+  register: adsync
+  changed_when: (adsync.stdout | from_json).changed
+
+- name: Changements effectués dans l'annuaire
+  ansible.builtin.debug:
+    msg: "{{ (adsync.stdout | from_json).changes or ['aucun changement'] }}"
+
+- name: Enregistrements DNS des serveurs et de TrackR
+  ansible.builtin.shell: |
+    if samba-tool dns query 127.0.0.1 {{ domain_fqdn }} {{ item.name }} A -U Administrator --password="$PW" 2>/dev/null | grep -q "{{ item.ip }}"; then
+      echo PRESENT
+    else
+      samba-tool dns add 127.0.0.1 {{ domain_fqdn }} {{ item.name }} A {{ item.ip }} -U Administrator --password="$PW"
+    fi
+  environment:
+    PW: "{{ vault_ad_admin_password }}"
+  loop: "{{ dns_records }}"
+  loop_control: { label: "{{ item.name }} -> {{ item.ip }}" }
+  register: dnsadd
+  changed_when: "'PRESENT' not in dnsadd.stdout"

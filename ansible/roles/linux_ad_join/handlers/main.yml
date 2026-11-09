@@ -1,0 +1,5 @@
+- name: Redémarrer sssd
+  ansible.builtin.service: { name: sssd, state: restarted, enabled: true }
+
+- name: Marquer mkhomedir
+  ansible.builtin.file: { path: /etc/pam.d/.transnord-mkhomedir, state: touch, mode: "0644" }

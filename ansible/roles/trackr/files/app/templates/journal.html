@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Journal{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Journal : qui a fait quoi, quand</h1>
+  <p class="muted">Les 200 derniers événements. Ce journal ne peut être ni modifié ni effacé par l'application.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Quand</th><th>Qui</th><th>Action</th><th>Détail</th><th>Depuis</th><th>Serveur</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{{ 'warn' if r.action in ('refus', 'connexion_echouee', 'connexion_refusee') else '' }}">
+        <td>{{ r.at.strftime('%d/%m %H:%M:%S') }}</td><td>{{ r.username or '-' }}</td><td>{{ r.action }}</td>
+        <td>{{ r.detail }}</td><td>{{ r.source_ip }}</td><td>{{ r.node }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

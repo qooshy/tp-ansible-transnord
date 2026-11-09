@@ -1,0 +1,6 @@
+.vagrant/
+.lab/
+ansible/.vault_pass
+ansible/inventories/*/group_vars/all/vault.yml
+ansible/reports/
+*.retry

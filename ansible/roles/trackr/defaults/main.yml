@@ -1,0 +1,3 @@
+# Serveur principal lors de la toute première installation uniquement.
+# Ensuite, Ansible détecte lui-même qui est principal (la bascule peut l'avoir changé).
+trackr_initial_primary: "{{ groups['trackr'] | first }}"

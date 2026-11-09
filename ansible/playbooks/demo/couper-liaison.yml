@@ -1,0 +1,29 @@
+# DÉMONSTRATION : simule la coupure de la liaison Lille <-> Dunkerque.
+# Les serveurs de Lille rejettent tout ce qui vient de Dunkerque, sauf le canal
+# d'administration d'Ansible (SSH / WinRM depuis ops01) pour pouvoir rétablir.
+#   bash scripts/deploy playbooks/demo/couper-liaison.yml
+#   bash scripts/deploy playbooks/demo/retablir-liaison.yml
+- name: Coupure de la liaison inter-sites
+  hosts: site_lille
+  gather_facts: false
+  vars:
+    dunkerque: "{{ sites['dunkerque'].subnet }}"
+    ops_ip: "{{ hostvars[groups['control'][0]].ansible_host }}"
+  tasks:
+    - name: Linux - bloquer Dunkerque (sauf SSH d'Ansible)
+      ansible.builtin.shell: |
+        nft add table inet demo_coupure
+        nft add chain inet demo_coupure in '{ type filter hook input priority -10; }'
+        nft add chain inet demo_coupure out '{ type filter hook output priority -10; }'
+        nft add rule inet demo_coupure in ip saddr {{ ops_ip }} tcp dport 22 accept
+        nft add rule inet demo_coupure in ip saddr {{ dunkerque }} drop
+        nft add rule inet demo_coupure out ip daddr {{ ops_ip }} tcp sport 22 accept
+        nft add rule inet demo_coupure out ip daddr {{ dunkerque }} drop
+      changed_when: true
+
+    - name: Message
+      ansible.builtin.debug:
+        msg: >-
+          Liaison coupée. À montrer : TrackR fonctionne toujours à Dunkerque, la connexion
+          d'un salarié marche (DC de Dunkerque), l'alerte "Site lille injoignable" arrive par e-mail.
+      run_once: true

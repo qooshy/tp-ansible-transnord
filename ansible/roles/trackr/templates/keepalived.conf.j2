@@ -1,0 +1,36 @@
+# Géré par Ansible. L'adresse {{ trackr_vip }} suit le serveur TrackR en bonne santé.
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user keepalived_script
+}
+
+vrrp_script trackr_ok {
+    script "/usr/local/sbin/trackr-vip-check"
+    interval 2
+    timeout 5
+    fall 2
+    rise 2
+}
+
+vrrp_instance TRACKR {
+    state BACKUP
+    nopreempt                       # l'adresse ne revient pas toute seule : pas de va-et-vient
+    interface {{ lab_iface }}
+    virtual_router_id 20
+    priority {{ 150 if inventory_hostname == trackr_initial_primary else 100 }}
+    advert_int 1
+    unicast_src_ip {{ ansible_host }}
+    unicast_peer {
+{% for h in groups['trackr'] if h != inventory_hostname %}
+        {{ hostvars[h].ansible_host }}
+{% endfor %}
+    }
+    virtual_ipaddress {
+        {{ trackr_vip }}/24 dev {{ lab_iface }}
+    }
+    track_script {
+        trackr_ok
+    }
+    notify_master "/usr/local/sbin/trackr-promote"
+}

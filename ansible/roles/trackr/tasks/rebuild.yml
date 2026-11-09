@@ -1,0 +1,32 @@
+# Utilisé par playbooks/ops/trackr-reconstruire-secours.yml
+- name: Chemins PostgreSQL
+  ansible.builtin.shell: ls /etc/postgresql | sort -n | tail -1
+  register: pg_ver
+  changed_when: false
+
+- name: Principal actuel
+  ansible.builtin.set_fact:
+    trackr_primary: "{{ trackr_primary_override }}"
+    pg_data: "/var/lib/postgresql/{{ pg_ver.stdout }}/main"
+
+- name: Copie de la base
+  ansible.builtin.include_tasks: clone.yml
+
+- name: Redémarrage de l'application
+  ansible.builtin.service:
+    name: trackr
+    state: restarted
+
+- name: Contrôle
+  ansible.builtin.uri:
+    url: https://127.0.0.1/health
+    validate_certs: false
+    return_content: true
+  register: h
+  retries: 10
+  delay: 3
+  until: h.status == 200 and h.json.db_role == 'standby'
+
+- name: Résultat
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} est de nouveau la copie de secours de {{ trackr_primary }}."

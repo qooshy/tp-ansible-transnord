@@ -1,0 +1,5 @@
+# Fins de ligne Linux partout : les scripts tournent dans les VM Debian
+* text=auto eol=lf
+*.png binary
+*.pptx binary
+*.crt text eol=lf

@@ -1,0 +1,3 @@
+# Ont un accès VPN : les salariés actifs du service informatique.
+vpn_users: "{{ employees | selectattr('statut', 'eq', 'actif') | selectattr('service', 'eq', 'informatique') | list }}"
+vpn_prefix: "{{ vpn_server_ip.rsplit('.', 1)[0] }}"

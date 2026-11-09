@@ -1,0 +1,23 @@
+- name: Règles d'audit (qui fait quoi en administrateur)
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/50-transnord.rules
+    mode: "0640"
+    content: |
+      # Toute commande lancée en root par une personne identifiée
+      -a always,exit -F arch=b64 -S execve -F euid=0 -F auid>=1000 -F auid!=-1 -k commande_admin
+      # Modifications des comptes et des droits
+      -w /etc/passwd -p wa -k comptes
+      -w /etc/group -p wa -k comptes
+      -w /etc/shadow -p wa -k comptes
+      -w /etc/sudoers -p wa -k droits
+      -w /etc/sudoers.d/ -p wa -k droits
+      -w /etc/sssd/ -p wa -k annuaire
+      -w /etc/ssh/sshd_config -p wa -k ssh
+  notify: Recharger auditd
+
+- name: Audit transmis au journal système (donc au serveur central)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/plugins.d/syslog.conf
+    regexp: '^active\s*='
+    line: "active = yes"
+  notify: Redémarrer auditd

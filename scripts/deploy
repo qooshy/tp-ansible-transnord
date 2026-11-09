@@ -1,0 +1,12 @@
+#!/bin/bash
+# Lance un playbook en laissant une trace : QUI l'a lancé, QUOI, QUAND, et le
+# résultat. La trace part dans le journal central (ops01:/var/log/remote).
+#   bash scripts/deploy playbooks/site.yml [options ansible-playbook]
+set -uo pipefail
+cd "$(dirname "$0")/../ansible"
+WHO="${SUDO_USER:-$USER}"
+[ -f .vault_pass ] || bash ../scripts/init-secrets.sh
+logger -t ansible-run -p local0.notice "DEBUT utilisateur=$WHO commande='ansible-playbook $*'"
+ansible-playbook "$@"; RC=$?
+logger -t ansible-run -p local0.notice "FIN utilisateur=$WHO commande='ansible-playbook $*' code_retour=$RC"
+exit $RC

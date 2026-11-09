@@ -1,0 +1,12 @@
+#!/bin/bash
+# Géré par Ansible. Verrouille chaque prestataire dont la date de fin de
+# mission (shadowExpire) est dépassée. Tourne chaque nuit sur {{ inventory_hostname }}.
+set -euo pipefail
+TODAY=$(( $(date +%s) / 86400 ))
+ldapsearch -Q -LLL -Y EXTERNAL -H ldapi:/// -b "ou=prestataires,{{ ldap_base_dn }}" \
+  "(&(objectClass=shadowAccount)(shadowExpire<=$((TODAY - 1)))(!(pwdAccountLockedTime=*)))" dn |
+  sed -n 's/^dn: //p' | while read -r DN; do
+    printf 'dn: %s\nchangetype: modify\nadd: pwdAccountLockedTime\npwdAccountLockedTime: 000001010000Z\n' "$DN" |
+      ldapmodify -Q -Y EXTERNAL -H ldapi:/// >/dev/null
+    logger -t prestataires "Compte verrouillé (fin de mission) : $DN"
+  done

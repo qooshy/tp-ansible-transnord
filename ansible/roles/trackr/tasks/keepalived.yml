@@ -1,0 +1,34 @@
+- name: Utilisateur des scripts keepalived
+  ansible.builtin.user:
+    name: keepalived_script
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Le script de bascule peut promouvoir la base (et rien d'autre)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/keepalived-trackr
+    mode: "0440"
+    validate: visudo -cf %s
+    content: |
+      keepalived_script ALL=(postgres) NOPASSWD: /usr/bin/psql
+
+- name: Scripts de contrôle et de bascule
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0755"
+  loop: [trackr-vip-check, trackr-promote]
+
+- name: Configuration keepalived
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0644"
+  notify: Redémarrer keepalived
+
+- name: keepalived démarré
+  ansible.builtin.service:
+    name: keepalived
+    state: started
+    enabled: true

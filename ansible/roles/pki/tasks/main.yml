@@ -1,0 +1,52 @@
+# Autorité de certification interne : tous les échanges (annuaires, TrackR)
+# sont chiffrés avec des certificats signés par CETTE autorité.
+# S'exécute sur ops01 (le poste de contrôle). Idempotent : rien n'est
+# régénéré tant que les fichiers existent et sont valides.
+- name: Dossier de l'autorité de certification
+  ansible.builtin.file:
+    path: "{{ pki_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ pki_owner }}"
+
+- name: Clé privée de l'autorité
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/{{ ca_cert_name }}.key"
+    type: ECC
+    curve: secp384r1
+    mode: "0600"
+    owner: "{{ pki_owner }}"
+
+- name: Demande de certificat de l'autorité
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/{{ ca_cert_name }}.key"
+    common_name: "{{ org_name }} - Autorite interne"
+    organization_name: "{{ org_name }}"
+    basic_constraints: ["CA:TRUE", "pathlen:0"]
+    basic_constraints_critical: true
+    key_usage: [keyCertSign, cRLSign]
+    key_usage_critical: true
+  register: ca_csr
+  changed_when: false
+
+- name: Certificat de l'autorité (10 ans)
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/{{ ca_cert_name }}.crt"
+    csr_content: "{{ ca_csr.csr }}"
+    privatekey_path: "{{ pki_dir }}/{{ ca_cert_name }}.key"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+
+- name: Certificats des services
+  ansible.builtin.include_tasks: issue.yml
+  loop: "{{ pki_certificates }}"
+  loop_control:
+    loop_var: cert
+    label: "{{ cert.name }}"
+
+- name: Certificat de l'autorité déposé dans le dépôt (à importer sur les postes)
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ ca_cert_name }}.crt"
+    dest: "{{ playbook_dir }}/../../{{ ca_cert_name }}.crt"
+    mode: "0644"
+    owner: "{{ pki_owner }}"

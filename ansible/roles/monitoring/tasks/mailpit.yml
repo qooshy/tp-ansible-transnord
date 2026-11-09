@@ -1,0 +1,31 @@
+- name: Mailpit installé ?
+  ansible.builtin.command: /usr/local/bin/mailpit version
+  register: mailpit_installed
+  changed_when: false
+  failed_when: false
+
+- name: Télécharger Mailpit {{ mailpit_version }}
+  ansible.builtin.unarchive:
+    src: "https://github.com/axllent/mailpit/releases/download/v{{ mailpit_version }}/mailpit-linux-amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: [mailpit]
+    mode: "0755"
+  when: mailpit_version not in mailpit_installed.stdout | default('')
+
+- name: Service Mailpit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/mailpit.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Mailpit - boîte mail de démonstration
+      After=network.target
+      [Service]
+      DynamicUser=yes
+      StateDirectory=mailpit
+      ExecStart=/usr/local/bin/mailpit --listen 0.0.0.0:8025 --smtp 127.0.0.1:1025 --database /var/lib/mailpit/mailpit.db
+      Restart=always
+      [Install]
+      WantedBy=multi-user.target
+  notify: Redémarrer mailpit

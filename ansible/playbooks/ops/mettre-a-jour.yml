@@ -1,0 +1,38 @@
+# Met à jour TOUS les paquets, un serveur à la fois (TrackR et l'annuaire
+# restent disponibles : l'autre serveur de chaque paire continue de servir).
+# Les correctifs de sécurité s'installent déjà seuls chaque nuit ; ceci est la
+# mise à jour complète mensuelle (à lancer un dimanche, sans activité).
+#   bash scripts/deploy playbooks/ops/mettre-a-jour.yml [-e redemarrer=true]
+- name: Mise à jour complète, serveur par serveur
+  hosts: linux
+  serial: "{{ lot | default(1) }}"     # labo : -e lot=10 pour tout faire en parallèle
+  vars:
+    redemarrer: false
+  tasks:
+    - name: Mise à jour de tous les paquets
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: maj
+
+    - name: Paquets mis à jour
+      ansible.builtin.debug:
+        msg: "{{ (maj.stdout_lines | default([]) | select('match', '^Inst ') | list | length) }} paquets mis à jour"
+
+    - name: Redémarrage nécessaire ?
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Redémarrage (si demandé et nécessaire)
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: redemarrer | bool and reboot_flag.stat.exists
+
+    - name: Rafraîchir le compteur de la supervision
+      ansible.builtin.systemd:
+        name: prometheus-node-exporter-apt.service
+        state: started
+      failed_when: false

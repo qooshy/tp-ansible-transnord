@@ -1,0 +1,15 @@
+# Ports de l'Active Directory (Samba AD), ouverts au réseau interne et au VPN.
+ad_sources: "{ {{ lab_cidr }}, {{ vpn_cidr }} }"
+firewall_allow:
+  - { port: "53", proto: tcp, from: "{{ ad_sources }}", comment: "DNS" }
+  - { port: "53", proto: udp, from: "{{ ad_sources }}", comment: "DNS" }
+  - { port: "{ 88, 464 }", proto: tcp, from: "{{ ad_sources }}", comment: "Kerberos" }
+  - { port: "{ 88, 464 }", proto: udp, from: "{{ ad_sources }}", comment: "Kerberos" }
+  - { port: "123", proto: udp, from: "{{ ad_sources }}", comment: "heure" }
+  - { port: "{ 135, 139, 445 }", proto: tcp, from: "{{ ad_sources }}", comment: "RPC / partages" }
+  - { port: "{ 389, 636, 3268, 3269 }", proto: tcp, from: "{{ ad_sources }}", comment: "annuaire LDAP / LDAPS" }
+  - { port: "389", proto: udp, from: "{{ ad_sources }}", comment: "annuaire (localisation du DC)" }
+  - { port: "49152-65535", proto: tcp, from: "{{ ad_sources }}", comment: "RPC dynamiques (replication AD)" }
+
+# Sauvegarde : export complet de l'annuaire + fiches de paie (chiffrées vers Lille)
+backup_extra_paths: [/srv/partages]

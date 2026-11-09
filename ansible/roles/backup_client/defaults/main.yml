@@ -1,0 +1,9 @@
+backup_server: "{{ groups['backup_servers'][0] }}"
+backup_server_fqdn: "{{ backup_server }}.{{ domain_fqdn }}"
+backup_local: "{{ inventory_hostname == backup_server }}"     # le serveur de sauvegarde écrit chez lui
+backup_repo: >-
+  {{ '/srv/borg/depots/' ~ inventory_hostname if backup_local
+     else 'ssh://borg@' ~ backup_server_fqdn ~ '/srv/borg/depots/' ~ inventory_hostname }}
+backup_paths: [/etc, /var/backups/transnord]
+backup_extra_paths: []
+backup_retention: "--keep-daily 14 --keep-weekly 8 --keep-monthly 12"
