@@ -1,0 +1,130 @@
+---
+# TrackR, l'application du cours (files/trackr.py, non modifiée), installée comme
+# le décrit son README et rendue robuste comme au MC11 : service durci qui
+# redémarre seul, base PostgreSQL sur db01, connexion des salariés par l'AD (LDAPS),
+# nginx devant pour le HTTPS.
+- name: Paquets (ldap3 pour l'AD, psycopg2 pour PostgreSQL, nginx pour le HTTPS)
+  ansible.builtin.apt:
+    name: [python3-ldap3, python3-psycopg2, nginx, openssl]
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Compte système dédié (jamais root)
+  ansible.builtin.user:
+    name: trackr
+    system: true
+    home: /var/lib/trackr
+    create_home: true
+    shell: /usr/sbin/nologin
+
+- name: Dossier de l'application
+  ansible.builtin.file:
+    path: /opt/trackr
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: L'application
+  ansible.builtin.copy:
+    src: trackr.py
+    dest: /opt/trackr/trackr
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Redémarrer trackr
+
+- name: Dossier de configuration
+  ansible.builtin.file:
+    path: /etc/trackr
+    state: directory
+    owner: root
+    group: trackr
+    mode: "0750"
+
+- name: Certificats des DC, pour que TrackR vérifie qu'il parle bien à eux (LDAPS)
+  ansible.builtin.shell: |
+    set -o pipefail
+    for dc in {{ trackr_ad_servers | join(' ') }}; do
+      openssl s_client -connect "$dc:636" </dev/null 2>/dev/null | openssl x509
+    done > /etc/trackr/ad-ca.crt.new
+    if cmp -s /etc/trackr/ad-ca.crt.new /etc/trackr/ad-ca.crt; then rm /etc/trackr/ad-ca.crt.new; echo IDENTIQUE
+    else mv /etc/trackr/ad-ca.crt.new /etc/trackr/ad-ca.crt; chgrp trackr /etc/trackr/ad-ca.crt; chmod 0640 /etc/trackr/ad-ca.crt; fi
+  args:
+    executable: /bin/bash
+  register: ad_ca
+  changed_when: "'IDENTIQUE' not in ad_ca.stdout"
+  when: trackr_auth == 'ad'
+  notify: Redémarrer trackr
+
+- name: Réglages (secrets compris, lisibles par TrackR seul)
+  ansible.builtin.template:
+    src: trackr.env.j2
+    dest: /etc/trackr/trackr.env
+    owner: root
+    group: trackr
+    mode: "0640"
+  notify: Redémarrer trackr
+
+- name: Service durci (MC11)
+  ansible.builtin.template:
+    src: trackr.service.j2
+    dest: /etc/systemd/system/trackr.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer trackr
+
+- name: TrackR démarré au boot
+  ansible.builtin.systemd:
+    name: trackr
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# ---------------------------------------------------------------- nginx
+- name: Certificat HTTPS
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/trackr.{{ item.ext }}"
+    dest: "/etc/nginx/trackr.{{ item.ext }}"
+    owner: root
+    group: www-data
+    mode: "{{ item.mode }}"
+  loop: [{ ext: crt, mode: "0644" }, { ext: key, mode: "0640" }]
+  loop_control: { label: "trackr.{{ item.ext }}" }
+  notify: Recharger nginx
+
+- name: Site TrackR
+  ansible.builtin.template:
+    src: nginx-trackr.conf.j2
+    dest: /etc/nginx/sites-available/trackr
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger nginx
+
+- name: Site activé
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/trackr
+    dest: /etc/nginx/sites-enabled/trackr
+    state: link
+  notify: Recharger nginx
+
+- name: Site par défaut retiré
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recharger nginx
+
+- name: Appliquer
+  ansible.builtin.meta: flush_handlers
+
+- name: Contrôle - TrackR répond (base comprise)
+  ansible.builtin.uri:
+    url: https://127.0.0.1/health
+    validate_certs: false
+    return_content: true
+  register: trackr_health
+  retries: 10
+  delay: 3
+  until: trackr_health.status == 200

@@ -1,0 +1,16 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+# {{ ansible_managed }}
+[Match]
+Name={{ item.name }}
+
+[Network]
+Address={{ item.address }}
+{% if item.gateway is defined %}
+Gateway={{ item.gateway }}
+{% endif %}
+{% for route in item.routes | default([]) %}
+
+[Route]
+Destination={{ route.to }}
+Gateway={{ route.via }}
+{% endfor %}

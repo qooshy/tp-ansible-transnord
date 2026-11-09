@@ -1,0 +1,96 @@
+# -*- mode: ruby -*-
+# Labo LogiNord sur un PC (VirtualBox) : la PARTIE LINUX du projet, pour la tester
+# sans le matériel de l'école. Les DC Windows n'y sont pas (trop gourmands pour un PC
+# portable) : TrackR s'y connecte en mode "local" au lieu de l'AD.
+#
+# Même architecture que le cours : deux LAN, un WAN, deux routeurs, un tunnel WireGuard.
+# Chaque VM garde sa carte NAT (eth0) : c'est par elle qu'Ansible passe, comme à l'école.
+# Les cartes internes sont renommées ens19 / ens20 pour réutiliser les host_vars tels quels.
+#
+#   cd lab && vagrant up        -> crée les VM, puis "ctl" déploie tout avec Ansible
+#   vagrant ssh ctl             -> le poste Ansible (dépôt monté dans /srv/loginord)
+
+LAB  = File.dirname(File.expand_path(__FILE__))
+KEY  = File.join(LAB, '.lab', 'id_ed25519')
+BOX  = ENV.fetch('LAB_BOX', 'bento/debian-13')
+
+# nom => [site, mémoire (Mo), port SSH sur le PC, réseaux internes (dans l'ordre ens19, ens20)]
+VMS = {
+  'rtr-a'  => ['lille',     384, 22201, %w[lan-lille wan]],
+  'rtr-b'  => ['dunkerque', 384, 22202, %w[lan-dunkerque wan]],
+  'bkp01'  => ['lille',     384, 22212, %w[lan-lille]],
+  'web01'  => ['dunkerque', 512, 22220, %w[lan-dunkerque]],
+  'db01'   => ['dunkerque', 512, 22221, %w[lan-dunkerque]],
+  'mon01'  => ['dunkerque', 768, 22230, %w[lan-dunkerque]],
+  'ldap01' => ['dunkerque', 384, 22231, %w[lan-dunkerque]],
+}
+# Pour consulter TrackR et la supervision depuis le navigateur du PC
+WEB = { 'web01' => { 443 => 8443 }, 'mon01' => { 3000 => 3000, 8025 => 8025 } }
+
+unless File.exist?(KEY)
+  Dir.mkdir(File.dirname(KEY)) unless Dir.exist?(File.dirname(KEY))
+  system('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'ansible@loginord-lab', '-f', KEY) or abort 'ssh-keygen introuvable'
+end
+PUBKEY = File.read("#{KEY}.pub").strip
+
+# Préparation minimale demandée par le cours (MC1) : un utilisateur "debian" avec sudo
+# et la clé SSH du poste Ansible ; ici on renomme aussi les cartes internes.
+def preparation(ifaces)
+  renames = ifaces.each_with_index.map { |name, i| "renomme eth#{i + 1} #{%w[ens19 ens20][i]}" }.join("\n")
+  <<~SHELL
+    set -e
+    id debian >/dev/null 2>&1 || useradd -m -s /bin/bash debian
+    install -d -m 700 -o debian -g debian /home/debian/.ssh
+    echo '#{PUBKEY}' > /home/debian/.ssh/authorized_keys
+    chown debian:debian /home/debian/.ssh/authorized_keys && chmod 600 /home/debian/.ssh/authorized_keys
+    echo 'debian ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/debian && chmod 440 /etc/sudoers.d/debian
+    renomme() {
+      [ -e /sys/class/net/$1 ] || return 0
+      mac=$(cat /sys/class/net/$1/address)
+      printf '[Match]\\nMACAddress=%s\\n\\n[Link]\\nName=%s\\n' "$mac" "$2" > /etc/systemd/network/10-$2.link
+      ip link set "$1" down && ip link set "$1" name "$2" && ip link set "$2" up
+    }
+    #{renames}
+    update-initramfs -u >/dev/null 2>&1 || true
+  SHELL
+end
+
+Vagrant.configure('2') do |config|
+  config.vm.box = BOX
+  config.vm.box_check_update = false
+  config.vm.synced_folder '.', '/vagrant', disabled: true
+
+  VMS.each do |name, (site, mem, ssh_port, nets)|
+    config.vm.define name do |m|
+      m.vm.hostname = name
+      m.vm.network 'forwarded_port', id: 'ssh', guest: 22, host: ssh_port, host_ip: '127.0.0.1'
+      (WEB[name] || {}).each { |g, h| m.vm.network 'forwarded_port', guest: g, host: h, host_ip: '127.0.0.1' }
+      nets.each { |net| m.vm.network 'private_network', ip: '169.254.0.1', virtualbox__intnet: "loginord-#{net}", auto_config: false }
+      m.vm.provider 'virtualbox' do |vb|
+        vb.name = "loginord-#{name}"
+        vb.memory = mem
+        vb.cpus = 1
+        vb.linked_clone = true
+        vb.customize ['modifyvm', :id, '--groups', '/LogiNord']
+        # Les cartes internes doivent laisser passer le multicast OSPF et les adresses des autres
+        (2..(nets.size + 1)).each { |n| vb.customize ['modifyvm', :id, "--nicpromisc#{n}", 'allow-all'] }
+      end
+      m.vm.provision 'preparation', type: 'shell', inline: preparation(nets)
+    end
+  end
+
+  # Le poste Ansible du labo (à l'école : votre PC sous Linux, macOS ou WSL)
+  config.vm.define 'ctl' do |m|
+    m.vm.hostname = 'ctl'
+    m.vm.provider 'virtualbox' do |vb|
+      vb.name = 'loginord-ctl'
+      vb.memory = 768
+      vb.cpus = 2
+      vb.linked_clone = true
+      vb.customize ['modifyvm', :id, '--groups', '/LogiNord']
+    end
+    m.vm.synced_folder '..', '/srv/loginord', mount_options: ['dmode=755', 'fmode=644']
+    m.vm.provision 'ansible', type: 'shell', path: 'preparer-ctl.sh'
+    m.vm.provision 'deploiement', type: 'shell', privileged: false, inline: 'bash /srv/loginord/lab/deploy.sh site.yml'
+  end
+end

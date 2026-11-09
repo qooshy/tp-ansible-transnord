@@ -1,0 +1,22 @@
+---
+interfaces:
+  - name: ens19                    # côté Lille
+    address: 10.1.10.1/24
+  - name: ens20                    # côté WAN
+    address: 192.0.2.1/24
+wg_address: 10.255.0.1/30
+wg_private_key: "{{ vault_wg_rtr_a }}"
+wg_peer_pubkey: "{{ vault_wg_pub_rtr_b }}"   # wg pubkey < clé privée de rtr-b, rangée dans le vault
+wg_peer_endpoint: 192.0.2.2
+ospf_router_id: 10.255.0.1
+ospf_networks:
+  - 10.255.0.0/30
+  - 10.1.10.0/24
+
+# Accès à distance des informaticiens (la nuit, le week-end) : VPN dédié
+vpn_admin_enabled: true
+vpn_admin_if: wg1
+vpn_admin_port: 51821
+vpn_admin_net: 10.99.0.0/24
+vpn_admin_ip: 10.99.0.1
+vpn_admin_endpoint: vpn.loginord.example     # l'adresse publique de la box de Lille

@@ -1,0 +1,68 @@
+---
+# DB01 : la base de TrackR (MC11). Seul web01 peut s'y connecter, avec un mot de passe.
+- name: PostgreSQL
+  ansible.builtin.apt:
+    name: [postgresql, python3-psycopg2]
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Version installée
+  ansible.builtin.find:
+    paths: /etc/postgresql
+    file_type: directory
+    recurse: false
+  register: pg_versions
+
+- name: Chemin de la configuration
+  ansible.builtin.set_fact:
+    pg_conf: "{{ (pg_versions.files | map(attribute='path') | sort | last) }}/main"
+
+- name: Écoute sur le réseau de Dunkerque
+  ansible.builtin.copy:
+    dest: "{{ pg_conf }}/conf.d/loginord.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+    content: |
+      # Géré par Ansible (dépôt loginord-infra)
+      listen_addresses = 'localhost,{{ lan_ip }}'
+      password_encryption = scram-sha-256
+      log_connections = on
+      log_disconnections = on
+  notify: Redémarrer postgresql
+
+- name: Seul web01 entre, et seulement dans la base trackr
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ pg_conf }}/pg_hba.conf"
+    contype: host
+    databases: trackr
+    users: trackr
+    source: "{{ hostvars[item].lan_ip }}/32"
+    method: scram-sha-256
+  loop: "{{ groups['trackr'] }}"
+  notify: Recharger postgresql
+
+- name: Appliquer
+  ansible.builtin.meta: flush_handlers
+
+- name: Service
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Compte de l'application
+  community.postgresql.postgresql_user:
+    name: trackr
+    password: "{{ vault_trackr_db_password }}"
+  become: true
+  become_user: postgres
+  no_log: true
+
+- name: Base trackr (la table est créée par TrackR à son premier démarrage)
+  community.postgresql.postgresql_db:
+    name: trackr
+    owner: trackr
+    encoding: UTF-8
+  become: true
+  become_user: postgres

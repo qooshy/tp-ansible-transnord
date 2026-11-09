@@ -1,7 +1,0 @@
-trackr_ips: "{{ groups['trackr'] | map('extract', hostvars, 'ansible_host') | join(', ') }}"
-firewall_allow:
-  - { port: 443, comment: "TrackR (HTTPS)" }
-  - { port: 80, comment: "redirection vers HTTPS" }
-  - { port: 5432, from: "{ {{ trackr_ips }} }", comment: "replication PostgreSQL" }
-firewall_extra_rules:
-  - ip protocol vrrp ip saddr { {{ trackr_ips }} } accept comment "adresse flottante"

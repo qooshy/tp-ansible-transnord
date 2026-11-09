@@ -1,0 +1,49 @@
+---
+# --- Le rangement de l'annuaire ---
+ad_root_ou: LogiNord
+ad_site_ous: [Lille, Dunkerque]
+ad_site_sub_ous: [Utilisateurs, Serveurs]
+ad_other_ous: [Groupes, Admins, Departs]
+
+# --- Les groupes, façon AGDLP ---
+# GG = qui sont les gens (global), DL = à quoi ils ont droit (domainlocal)
+ad_groups:
+  - { name: GG_Direction, scope: global }
+  - { name: GG_RH, scope: global }
+  - { name: GG_Compta, scope: global }
+  - { name: GG_Exploitation, scope: global }
+  - { name: GG_IT, scope: global }
+  - { name: GG_Admins_Linux, scope: global }
+  - { name: DL_Partage_RH_RW, scope: domainlocal, members: [GG_RH] }
+  - { name: DL_Partage_Compta_RW, scope: domainlocal, members: [GG_Compta] }
+  - { name: DL_Partage_Commun_RW, scope: domainlocal, members: [GG_Direction, GG_RH, GG_Compta, GG_Exploitation, GG_IT] }
+  # TrackR (MC11) : qui entre dans l'appli, via un DL comme le veut AGDLP
+  - { name: DL_TrackR_Acces, scope: domainlocal, members: [GG_Exploitation, GG_Direction, GG_IT] }
+
+# --- Les utilisateurs : désormais dans data/personnel.yml, géré par les RH (MC13) ---
+ad_test_users: []
+
+# --- Le DNS ---
+ad_dns_reverse_zones:
+  - 10.1.10.in-addr.arpa
+  - 10.1.20.in-addr.arpa
+ad_dns_records:
+  - { name: trackr, type: A, value: 10.1.20.20 }
+  - { name: web01, type: A, value: 10.1.20.20 }
+  - { name: db01, type: A, value: 10.1.20.21 }
+  - { name: mon01, type: A, value: 10.1.20.30 }
+  - { name: ldap01, type: A, value: 10.1.20.31 }
+  - { name: bkp01, type: A, value: 10.1.10.20 }
+  - { name: rtr-a, type: A, value: 10.1.10.1 }
+  - { name: rtr-b, type: A, value: 10.1.20.1 }
+ad_dns_forwarders:
+  - 1.1.1.1
+  - 9.9.9.9
+
+# --- Les sites AD, vus au MC5 ---
+ad_sites:
+  - { name: Lille, subnets: [10.1.10.0/24] }
+  - { name: Dunkerque, subnets: [10.1.20.0/24] }
+ad_site_link_name: Lille-Dunkerque
+ad_site_link_cost: 100
+ad_site_link_frequency: 15

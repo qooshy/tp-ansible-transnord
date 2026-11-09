@@ -1,0 +1,10 @@
+---
+ssh_admin_group: ssh-admins
+ssh_admin_users: []
+ssh_admin_pubkey: ""
+ssh_max_auth_tries: 3
+ssh_login_grace_time: 30
+# MC6 : groupes AD ajoutés à AllowGroups, et ceux qui peuvent entrer avec leur
+# mot de passe AD (vérifié par Kerberos via SSSD). Vides avant le MC6.
+ssh_extra_allow_groups: []
+ssh_password_groups: []

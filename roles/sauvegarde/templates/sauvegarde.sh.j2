@@ -1,0 +1,51 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Sauvegarde de {{ inventory_hostname }} : exports cohérents, puis copie chiffrée vers
+# {{ sauvegarde_serveur }} (Lille). Le résultat est publié pour la supervision (MC15).
+set -uo pipefail
+export BORG_REPO="{{ sauvegarde_depot }}"
+export BORG_PASSCOMMAND="cat /root/.borg-passphrase"
+export BORG_RSH="ssh -i /root/.ssh/id_sauvegarde -o BatchMode=yes"
+export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
+OUT=/var/backups/loginord
+PROM=/var/lib/prometheus/node-exporter/sauvegarde.prom
+STATUS=0
+log() { logger -t sauvegarde "$*"; echo "$*"; }
+
+log "Début de la sauvegarde de {{ inventory_hostname }}"
+{% if inventory_hostname in groups['databases'] %}
+
+# MC11 : un export de la base TrackR, gardé 7 jours sur place...
+F=/var/backups/pg/trackr-$(date +%F-%H%M).dump
+runuser -u postgres -- pg_dump -Fc trackr > "$F" || STATUS=1
+find /var/backups/pg -name 'trackr-*.dump' -mtime +7 -delete
+cp "$F" "$OUT/trackr.dump" || STATUS=1
+{% endif %}
+{% if inventory_hostname in groups['ldap_servers'] %}
+
+# L'annuaire des prestataires
+slapcat -n 0 > "$OUT/ldap-config.ldif" && slapcat -n 1 > "$OUT/ldap-donnees.ldif" || STATUS=1
+{% endif %}
+
+# ... et une copie chiffrée sur l'autre site
+borg info >/dev/null 2>&1 || borg init --encryption=repokey-blake2 || STATUS=1
+CHEMINS=()
+for p in {{ (sauvegarde_chemins + sauvegarde_chemins_extra) | join(' ') }}; do [ -e "$p" ] && CHEMINS+=("$p"); done
+borg create --compression zstd "::{{ inventory_hostname }}-{now:%Y-%m-%d_%H%M}" "${CHEMINS[@]}" || STATUS=1
+{% if sauvegarde_locale %}
+borg prune --keep-hourly 24 --keep-daily 14 --keep-weekly 8 --keep-monthly 6 || STATUS=1
+{% endif %}
+rm -f "$OUT"/*.dump "$OUT"/*.ldif
+
+NOW=$(date +%s)
+{
+  echo "backup_last_status{host=\"{{ inventory_hostname }}\"} $STATUS"
+  if [ $STATUS -eq 0 ]; then
+    echo "backup_last_success_timestamp_seconds{host=\"{{ inventory_hostname }}\"} $NOW"
+  elif [ -f "$PROM" ]; then
+    grep '^backup_last_success_timestamp_seconds' "$PROM"
+  fi
+} > "$PROM.tmp" && mv "$PROM.tmp" "$PROM" && chmod 644 "$PROM"
+
+[ $STATUS -eq 0 ] && log "Sauvegarde réussie" || log "ÉCHEC de la sauvegarde"
+exit $STATUS

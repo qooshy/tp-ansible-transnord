@@ -1,2 +1,0 @@
-- name: Redémarrer samba
-  ansible.builtin.systemd: { name: samba-ad-dc, state: restarted, masked: false }

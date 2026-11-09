@@ -1,6 +1,13 @@
-.vagrant/
-.lab/
-ansible/.vault_pass
-ansible/inventories/*/group_vars/all/vault.yml
-ansible/reports/
+# --- du dépôt LogiNord_base ---
 *.retry
+.vault_pass*
+vault_pass*
+*.key
+.DS_Store
+# --- secrets et état local ---
+vault/secrets.yml.clair
+reports/
+# --- labo Vagrant ---
+lab/.vagrant/
+lab/.lab/
+vault/secrets.yml

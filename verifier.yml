@@ -1,0 +1,117 @@
+---
+# Contrôles de bon fonctionnement, lisibles par un humain.
+#   ansible-playbook verifier.yml          (avant une démo, après une panne...)
+
+- name: Routeurs - tunnel et OSPF
+  hosts: routers
+  gather_facts: false
+  tags: [reseau]
+  tasks:
+    - name: Le tunnel a échangé avec l'autre routeur depuis moins de 3 minutes
+      ansible.builtin.shell: >
+        set -o pipefail; now=$(date +%s); wg show {{ wg_if }} latest-handshakes | awk -v now="$now" '{print now - $2}'
+      args:
+        executable: /bin/bash
+      register: handshake
+      changed_when: false
+      failed_when: handshake.stdout | int > 180
+
+    - name: OSPF a appris le réseau de l'autre site
+      ansible.builtin.command: vtysh -c "show ip route ospf"
+      register: ospf
+      changed_when: false
+      failed_when: "'O>*' not in ospf.stdout"
+
+- name: Debian - heure, domaine, sudo
+  hosts: linux_servers
+  gather_facts: false
+  tags: [ad_linux]
+  tasks:
+    - name: Heure synchronisée
+      ansible.builtin.shell: set -o pipefail; chronyc -n sources | grep -E '^\^\*'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Joint au domaine
+      ansible.builtin.command: realm list --name-only
+      register: realm
+      changed_when: false
+      failed_when: ad_domain not in realm.stdout
+      when: groups['dcs'] | default([]) | length > 0
+
+    - name: Un admin Linux (adm-) a le droit sudo
+      ansible.builtin.command: "sudo -l -U {{ admin_test }}"
+      register: sudo_admin
+      changed_when: false
+      failed_when: "'(ALL : ALL) ALL' not in sudo_admin.stdout"
+      when: groups['dcs'] | default([]) | length > 0 and admin_test | length > 0
+
+    - name: Un salarié ordinaire n'a AUCUN droit sudo
+      ansible.builtin.command: "sudo -l -U {{ salarie_test }}"
+      register: sudo_autre
+      changed_when: false
+      failed_when: "'(ALL : ALL) ALL' in sudo_autre.stdout"
+      when: groups['dcs'] | default([]) | length > 0
+  vars_files:
+    - data/personnel.yml
+  vars:
+    admin_test: "{{ personnel | rejectattr('type', 'defined') | selectattr('service', 'eq', 'it') | rejectattr('depart', 'defined') | map(attribute='id') | map('regex_replace', '^', 'adm-') | first | default('') }}"
+    salarie_test: "{{ personnel | rejectattr('type', 'defined') | selectattr('service', 'eq', 'exploitation') | map(attribute='id') | first }}"
+
+- name: Services, vus depuis mon01 (comme la supervision)
+  hosts: monitoring
+  gather_facts: false
+  become: false
+  tags: [services]
+  tasks:
+    - name: TrackR répond (via nginx, base comprise)
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[groups['trackr'][0]].lan_ip }}/health"
+        validate_certs: false
+        return_content: true
+      register: trackr
+
+    - name: Résumé
+      ansible.builtin.debug:
+        msg:
+          - "TrackR : {{ trackr.json.status }} (version {{ trackr.json.version }}, connexion {{ trackr.json.auth }})"
+          - "Supervision : http://{{ hostvars[groups['monitoring'][0]].lan_ip }}:3000"
+
+- name: Prestataires - StartTLS obligatoire (MC7)
+  hosts: ldap_servers
+  gather_facts: false
+  tags: [ldap]
+  vars_files:
+    - vault/secrets.yml
+    - data/personnel.yml
+  tasks:
+    - name: ldapsearch -ZZ renvoie le prestataire
+      ansible.builtin.include_role:
+        name: openldap
+        tasks_from: controle
+
+- name: Sauvegardes
+  hosts: databases
+  gather_facts: false
+  tags: [sauvegarde]
+  tasks:
+    - name: Prochaine sauvegarde programmée
+      ansible.builtin.shell: set -o pipefail; systemctl list-timers sauvegarde.timer --no-legend | awk '{print $1, $2}'
+      args:
+        executable: /bin/bash
+      register: timer
+      changed_when: false
+      failed_when: timer.stdout | length == 0
+
+    - name: Dernier export de la base
+      ansible.builtin.shell: set -o pipefail; ls -1t /var/backups/pg/ | head -1
+      args:
+        executable: /bin/bash
+      register: dernier
+      changed_when: false
+      failed_when: dernier.stdout | length == 0
+
+    - name: Résumé
+      ansible.builtin.debug:
+        msg: "Dernier export : {{ dernier.stdout }} - prochaine sauvegarde : {{ timer.stdout }}"

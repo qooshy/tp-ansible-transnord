@@ -1,0 +1,38 @@
+---
+# Windows Server 2025 refuse les connexions LDAP non signées : sans TLS, TrackR et les
+# outils Linux ne peuvent pas s'authentifier. Le DC active LDAPS (port 636) dès qu'il a un
+# certificat "Server Authentication" auquel il fait lui-même confiance : on lui en fabrique
+# un, auto-signé. Le jour où AD CS arrive (bonus PKI), il prendra le relais.
+- name: Certificat LDAPS
+  ansible.windows.win_powershell:
+    parameters:
+      Fqdn: "{{ inventory_hostname }}.{{ ad_domain }}"
+      Domain: "{{ ad_domain }}"
+    script: |
+      param([string]$Fqdn, [string]$Domain)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $serverAuth = '1.3.6.1.5.5.7.3.1'
+      $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object {
+        $_.Subject -eq "CN=$Fqdn" -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddDays(30) -and
+        $_.EnhancedKeyUsageList.ObjectId -contains $serverAuth
+      } | Sort-Object NotAfter -Descending | Select-Object -First 1
+      if (-not $cert) {
+        $cert = New-SelfSignedCertificate -DnsName $Fqdn, $Domain -CertStoreLocation Cert:\LocalMachine\My `
+          -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(5) `
+          -TextExtension @("2.5.29.37={text}$serverAuth")
+        $Ansible.Changed = $true
+      }
+      if ($cert.Issuer -eq $cert.Subject -and -not (Test-Path "Cert:\LocalMachine\Root\$($cert.Thumbprint)")) {
+        $root = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+        $root.Open('ReadWrite')
+        $root.Add([System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData))
+        $root.Close()
+        $Ansible.Changed = $true
+      }
+      if ($Ansible.Changed) {
+        Restart-Service NTDS -Force
+        for ($i = 0; $i -lt 30; $i++) {
+          try { Get-ADDomain | Out-Null; break } catch { Start-Sleep -Seconds 10 }
+        }
+      }

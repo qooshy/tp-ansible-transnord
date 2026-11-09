@@ -1,0 +1,15 @@
+frr defaults traditional
+hostname {{ inventory_hostname }}
+!
+interface {{ wg_if }}
+ ip ospf network point-to-point
+!
+interface {{ lan_if }}
+ ip ospf passive
+!
+router ospf
+ ospf router-id {{ ospf_router_id }}
+{% for net in ospf_networks %}
+ network {{ net }} area 0
+{% endfor %}
+!

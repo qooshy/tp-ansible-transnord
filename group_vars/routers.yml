@@ -1,0 +1,11 @@
+---
+# Chaque hyperviseur nomme ses cartes à sa sauce : un `ip -br a` sur la VM et on adapte.
+mgmt_if: eth0      # la carte NAT : Internet et Ansible passent par là
+lan_if: ens19      # côté LAN du site
+wan_if: ens20      # le lien entre les deux routeurs
+wg_if: wg0
+wg_port: 51820
+lan_net: "{{ lan_supernet }}"
+
+# MC15 : le routeur se laisse superviser par MON01
+monitoring_ip: "{{ hostvars[groups['monitoring'][0]].lan_ip }}"

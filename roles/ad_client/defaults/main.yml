@@ -1,0 +1,5 @@
+---
+ad_linux_admin_group: GG_Admins_Linux
+dns_servers: []
+sssd_prestataires: false
+ldap_presta_group: presta-trackr

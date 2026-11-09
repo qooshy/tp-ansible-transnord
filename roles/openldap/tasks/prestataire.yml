@@ -1,0 +1,33 @@
+---
+- name: "{{ presta.id }} - fiche"
+  community.general.ldap_entry:
+    dn: "uid={{ presta.id }},ou=prestataires,{{ ldap_base }}"
+    objectClass: [inetOrgPerson, posixAccount, shadowAccount]
+    attributes:
+      uid: "{{ presta.id }}"
+      cn: "{{ presta.prenom }} {{ presta.nom }}"
+      givenName: "{{ presta.prenom }}"
+      sn: "{{ presta.nom }}"
+      uidNumber: "{{ 30000 + ((presta.id | hash('sha1'))[:6] | int(base=16)) % 30000 }}"
+      gidNumber: "{{ ldap_presta_gid }}"
+      homeDirectory: "/home/{{ presta.id }}"
+      loginShell: /bin/bash
+      userPassword: "{{ vault_presta_password }}"
+  no_log: true
+
+- name: "{{ presta.id }} - société et fin de mission"
+  community.general.ldap_attrs:
+    dn: "uid={{ presta.id }},ou=prestataires,{{ ldap_base }}"
+    attributes:
+      o: "{{ presta.societe | default('-') }}"
+      description: "Mission TrackR jusqu'au {{ presta.expiration }}"
+      # shadowExpire = nombre de jours depuis le 01/01/1970
+      shadowExpire: "{{ ((presta.expiration | string | to_datetime('%Y-%m-%d')) - ('1970-01-01' | to_datetime('%Y-%m-%d'))).days }}"
+    state: exact
+
+- name: "{{ presta.id }} - verrouillé si la mission est terminée"
+  community.general.ldap_attrs:
+    dn: "uid={{ presta.id }},ou=prestataires,{{ ldap_base }}"
+    attributes:
+      pwdAccountLockedTime: "000001010000Z"
+    state: "{{ 'present' if (presta.expiration | string) < now(fmt='%Y-%m-%d') else 'absent' }}"

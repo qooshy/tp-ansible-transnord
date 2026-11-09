@@ -1,0 +1,72 @@
+---
+# MC13 côté Active Directory (sur le DC principal) : applique data/personnel.yml.
+#   arrivée  : compte dans l'OU du site, groupes calculés, mot de passe à changer
+#   mobilité : changement d'OU, groupes REMPLACÉS (set), jamais ajoutés
+#   départ   : désactivé, déplacé dans Departs, retiré de ses groupes. Jamais supprimé.
+- name: Qui existe déjà dans l'annuaire ?
+  microsoft.ad.object_info:
+    ldap_filter: "(&(objectCategory=person)(|{% for id in personnel_ids %}(sAMAccountName={{ id }}){% endfor %}))"
+    properties: [sAMAccountName]
+  register: deja_la
+
+- name: Comptes existants
+  ansible.builtin.set_fact:
+    comptes_existants: "{{ deja_la.objects | map(attribute='sAMAccountName') | map('lower') | list }}"
+
+- name: Salariés présents (arrivées et mobilités)
+  microsoft.ad.user:
+    name: "{{ p.id }}"
+    sam_account_name: "{{ p.id }}"
+    upn: "{{ p.id }}@{{ ad_domain }}"
+    firstname: "{{ p.prenom }}"
+    surname: "{{ p.nom }}"
+    display_name: "{{ p.prenom }} {{ p.nom }}"
+    description: "{{ p.service | capitalize }} - {{ p.site | capitalize }}"
+    path: "{{ regles_sites[p.site] }},{{ ad_base_dn }}"
+    password: "{{ vault_ad_user_password }}"
+    update_password: on_create
+    password_expired: "{{ true if p.id | lower not in comptes_existants else omit }}"
+    enabled: true
+    attributes:
+      set:
+        department: "{{ p.service }}"
+    groups:
+      set: "{{ regles_services[p.service] + ['Domain Users'] }}"
+    state: present
+  loop: "{{ salaries_presents }}"
+  loop_control:
+    loop_var: p
+    label: "{{ p.id }} ({{ p.service }}, {{ p.site }})"
+
+- name: Comptes d'administration des informaticiens (adm-<id>)
+  microsoft.ad.user:
+    name: "adm-{{ p.id }}"
+    sam_account_name: "adm-{{ p.id }}"
+    upn: "adm-{{ p.id }}@{{ ad_domain }}"
+    firstname: "{{ p.prenom }}"
+    surname: "{{ p.nom }}"
+    display_name: "{{ p.prenom }} {{ p.nom }} (admin)"
+    description: "Compte d'administration de {{ p.id }}"
+    path: "{{ regles_ou_admins }},{{ ad_base_dn }}"
+    password: "{{ vault_ad_user_password }}"
+    update_password: on_create
+    enabled: true
+    groups:
+      set: "{{ regles_comptes_admin.groupes + ['Domain Users'] }}"
+    state: present
+  loop: "{{ salaries_presents | selectattr('service', 'in', regles_comptes_admin.services) | list }}"
+  loop_control:
+    loop_var: p
+    label: "adm-{{ p.id }}"
+
+- name: Départs (heure passée) - désactivé, rangé dans Departs, plus aucun groupe
+  microsoft.ad.user:
+    name: "{{ item }}"
+    enabled: false
+    path: "{{ regles_ou_departs }},{{ ad_base_dn }}"
+    groups:
+      set: [Domain Users]
+    state: present
+  loop: "{{ ids_partis }}"
+  when: item | lower in comptes_existants        # rien à désactiver s'il n'a jamais existé
+  register: departs_ad

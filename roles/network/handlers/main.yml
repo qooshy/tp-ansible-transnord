@@ -1,0 +1,10 @@
+---
+- name: Recharger networkd
+  ansible.builtin.command: networkctl reload
+  changed_when: true
+  listen: Appliquer la configuration réseau
+
+- name: Reconfigurer les interfaces
+  ansible.builtin.command: "networkctl reconfigure {{ interfaces | map(attribute='name') | join(' ') }}"
+  changed_when: true
+  listen: Appliquer la configuration réseau

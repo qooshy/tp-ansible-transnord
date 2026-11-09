@@ -1,0 +1,11 @@
+---
+# Les certificats émis par l'autorité interne : un par service exposé en TLS.
+# (Les DC ont leur propre certificat, posé par le rôle ad_ldaps du MC4.)
+pki_owner: "{{ lookup('ansible.builtin.pipe', 'id -un') }}"
+pki_certificates:
+  - name: ldap01
+    cn: "ldap01.{{ ad_domain }}"
+    sans: ["DNS:ldap01.{{ ad_domain }}", "DNS:ldap01", "IP:{{ hostvars['ldap01'].lan_ip }}"]
+  - name: trackr
+    cn: "{{ trackr_fqdn }}"
+    sans: ["DNS:{{ trackr_fqdn }}", "DNS:web01.{{ ad_domain }}", "DNS:web01", "IP:{{ hostvars['web01'].lan_ip }}"]

@@ -1,0 +1,104 @@
+---
+# Ce que toutes les Debian ont en plus du socle du MC1 :
+# mises à jour de sécurité (MC14), journaux et mesures pour MON01 (MC15),
+# traçabilité des actions admin, confiance dans l'autorité interne.
+- name: Paquets du socle
+  ansible.builtin.apt:
+    name: [rsyslog, prometheus-node-exporter, prometheus-node-exporter-collectors, unattended-upgrades, auditd, ca-certificates, python3-apt, acl]
+    update_cache: true
+    cache_valid_time: 3600
+
+# ---------------------------------------------------------------- MC14
+- name: Mises à jour automatiques - sécurité uniquement, sans redémarrage
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Géré par Ansible (dépôt loginord-infra)
+      // Au quotidien la sécurité, en campagne (patch-linux.yml) tout le reste.
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+
+- name: Mises à jour automatiques - activées chaque jour
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+# ---------------------------------------------------------------- MC15
+- name: Journaux locaux conservés au redémarrage
+  community.general.ini_file:
+    path: /etc/systemd/journald.conf
+    section: Journal
+    option: Storage
+    value: persistent
+    no_extra_spaces: true
+    mode: "0644"
+  notify: Redémarrer journald
+
+- name: Journaux envoyés à MON01 (file d'attente sur disque si le lien tombe)
+  ansible.builtin.copy:
+    dest: /etc/rsyslog.d/90-central.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Géré par Ansible (dépôt loginord-infra)
+      *.* action(type="omfwd" target="{{ log_server_ip }}" port="514" protocol="tcp"
+                 queue.type="LinkedList" queue.filename="vers_mon01" queue.maxDiskSpace="256m"
+                 queue.saveOnShutdown="on" action.resumeRetryCount="-1")
+  when: inventory_hostname not in groups['monitoring']
+  notify: Redémarrer rsyslog
+
+- name: Agent de supervision
+  ansible.builtin.service:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+
+- name: Compteur des mises à jour en attente pour la supervision
+  ansible.builtin.service:
+    name: prometheus-node-exporter-apt.timer
+    enabled: true
+    state: started
+  failed_when: false        # fourni par prometheus-node-exporter-collectors selon les versions
+
+# ---------------------------------------------------------------- traçabilité
+- name: Audit - toute commande lancée en root par une personne identifiée
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/50-loginord.rules
+    owner: root
+    group: root
+    mode: "0640"
+    content: |
+      -a always,exit -F arch=b64 -S execve -F euid=0 -F auid>=1000 -F auid!=-1 -k commande_admin
+      -w /etc/sudoers -p wa -k droits
+      -w /etc/sudoers.d/ -p wa -k droits
+      -w /etc/sssd/ -p wa -k annuaire
+  notify: Recharger auditd
+
+- name: Audit transmis au journal (donc à MON01)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/plugins.d/syslog.conf
+    regexp: '^active\s*='
+    line: active = yes
+  notify: Redémarrer auditd
+
+# ---------------------------------------------------------------- confiance
+- name: Autorité de certification interne
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ ca_name }}.crt"
+    dest: "/usr/local/share/ca-certificates/{{ ca_name }}.crt"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Mettre à jour les autorités

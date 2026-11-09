@@ -1,0 +1,39 @@
+---
+# MC13 : applique data/personnel.yml partout. Lancé par les RH via une merge request
+# (MC12), ou à la main :  ansible-playbook personnel.yml
+# Les départs sont pris en compte dès que leur heure est passée : un lancement
+# planifié chaque soir suffit à couper un départ "le soir même".
+
+- name: MC13 - comptes des salariés dans l'Active Directory
+  hosts: ad_primary
+  tags: [personnel, mc13]
+  vars_files:
+    - vault/secrets.yml
+    - data/personnel.yml
+    - data/regles.yml
+  tasks:
+    - name: Arrivées, mobilités, départs
+      ansible.builtin.include_role:
+        name: personnel
+        tasks_from: ad
+
+- name: MC13 - prestataires dans OpenLDAP
+  hosts: ldap_servers
+  tags: [personnel, mc13]
+  vars_files:
+    - vault/secrets.yml
+    - data/personnel.yml
+  roles:
+    - role: openldap
+
+- name: MC13 - départs sur les Debian (sessions fermées, cache SSSD vidé)
+  hosts: linux_servers
+  tags: [personnel, mc13]
+  vars_files:
+    - data/personnel.yml
+    - data/regles.yml
+  tasks:
+    - name: Départs
+      ansible.builtin.include_role:
+        name: personnel
+        tasks_from: linux

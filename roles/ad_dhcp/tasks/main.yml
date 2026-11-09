@@ -1,0 +1,53 @@
+---
+- name: Rôle DHCP
+  ansible.windows.win_feature:
+    name: DHCP
+    include_management_tools: true
+    state: present
+
+- name: Autorisation dans AD et groupes de sécurité DHCP
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $cs = Get-CimInstance Win32_ComputerSystem
+      $fqdn = "$($cs.DNSHostName).$($cs.Domain)"
+      $autorises = Get-DhcpServerInDC -ErrorAction SilentlyContinue
+      if (-not ($autorises | Where-Object { $_.DnsName -eq $fqdn })) {
+        Add-DhcpServerSecurityGroup
+        Add-DhcpServerInDC -DnsName $fqdn
+        Restart-Service DHCPServer
+        # Sinon le Gestionnaire de serveur nous rappelle à vie de « terminer la configuration »
+        Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\ServerManager\Roles\12' -Name ConfigurationState -Value 2
+        $Ansible.Changed = $true
+      }
+
+- name: Étendues DHCP
+  ansible.windows.win_powershell:
+    parameters:
+      Name: "{{ item.name }}"
+      ScopeId: "{{ item.scope_id }}"
+      Start: "{{ item.start }}"
+      End: "{{ item.end }}"
+      Mask: "{{ item.mask }}"
+      Router: "{{ item.router }}"
+      Dns: "{{ item.dns | join(',') }}"
+      Domain: "{{ ad_domain }}"
+    script: |
+      param($Name, $ScopeId, $Start, $End, $Mask, $Router, [string]$Dns, $Domain)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      if (-not (Get-DhcpServerv4Scope -ErrorAction SilentlyContinue | Where-Object { $_.ScopeId.IPAddressToString -eq $ScopeId })) {
+        Add-DhcpServerv4Scope -Name $Name -StartRange $Start -EndRange $End -SubnetMask $Mask -State Active
+        $Ansible.Changed = $true
+      }
+      $dnsVoulus = $Dns -split ','
+      $routeur = (Get-DhcpServerv4OptionValue -ScopeId $ScopeId -OptionId 3 -ErrorAction SilentlyContinue).Value
+      $dnsActuels = (Get-DhcpServerv4OptionValue -ScopeId $ScopeId -OptionId 6 -ErrorAction SilentlyContinue).Value
+      if (($routeur -join ',') -ne $Router -or ($dnsActuels -join ',') -ne ($dnsVoulus -join ',')) {
+        Set-DhcpServerv4OptionValue -ScopeId $ScopeId -Router $Router -DnsServer $dnsVoulus -DnsDomain $Domain -Force
+        $Ansible.Changed = $true
+      }
+  loop: "{{ dhcp_scopes | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"

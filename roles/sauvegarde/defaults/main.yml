@@ -1,0 +1,11 @@
+---
+sauvegarde_serveur: "{{ groups['backup_servers'][0] }}"
+sauvegarde_serveur_ip: "{{ hostvars[sauvegarde_serveur].lan_ip }}"
+sauvegarde_locale: "{{ inventory_hostname == sauvegarde_serveur }}"
+sauvegarde_depot: >-
+  {{ '/srv/borg/depots/' ~ inventory_hostname if sauvegarde_locale
+     else 'ssh://borg@' ~ sauvegarde_serveur_ip ~ '/srv/borg/depots/' ~ inventory_hostname }}
+# db01 toutes les heures, les autres chaque nuit
+sauvegarde_frequence: "{{ 'hourly' if inventory_hostname in groups['databases'] else '*-*-* 01:30' }}"
+sauvegarde_chemins: [/etc, /var/backups/loginord]
+sauvegarde_chemins_extra: []

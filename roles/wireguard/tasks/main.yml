@@ -1,0 +1,22 @@
+---
+- name: Installation de wireguard-tools
+  ansible.builtin.apt:
+    name: wireguard-tools
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Conf wg0
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "/etc/wireguard/{{ wg_if }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Redémarrer wireguard
+
+- name: Service wireguard
+  ansible.builtin.service:
+    name: "wg-quick@{{ wg_if }}"
+    enabled: true
+    state: started

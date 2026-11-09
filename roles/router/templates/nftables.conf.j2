@@ -1,0 +1,48 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iifname "lo" accept
+        ct state established,related accept
+        ip protocol icmp accept
+        meta l4proto ipv6-icmp accept
+        iifname "{{ mgmt_if }}" tcp dport 22 accept
+        iifname "{{ wan_if }}" udp dport {{ wg_port }} accept
+        iifname "{{ wg_if }}" ip protocol 89 accept
+{% if monitoring_ip is defined %}
+        # MC15 : MON01 vient lire les mesures du routeur
+        ip saddr {{ monitoring_ip }} tcp dport 9100 accept
+{% endif %}
+{% if vpn_admin_enabled | default(false) %}
+        # Accès des informaticiens depuis chez eux (VPN dédié, séparé du tunnel inter-sites)
+        iifname "{{ mgmt_if }}" udp dport {{ vpn_admin_port }} accept
+        iifname "{{ vpn_admin_if }}" tcp dport 22 accept
+{% endif %}
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        ct state established,related accept
+        iifname "{{ lan_if }}" oifname "{{ wg_if }}" accept
+        iifname "{{ wg_if }}" oifname "{{ lan_if }}" accept
+        iifname "{{ lan_if }}" oifname "{{ mgmt_if }}" accept
+{% if vpn_admin_enabled | default(false) %}
+        # Depuis le VPN admin : uniquement l'administration (SSH, WinRM, Grafana)
+        iifname "{{ vpn_admin_if }}" oifname { "{{ lan_if }}", "{{ wg_if }}" } tcp dport { 22, 5985, 3000 } accept
+{% endif %}
+    }
+}
+
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr {{ lan_net }} oifname "{{ mgmt_if }}" masquerade
+{% if vpn_admin_enabled | default(false) %}
+        ip saddr {{ vpn_admin_net }} oifname { "{{ lan_if }}", "{{ wg_if }}" } masquerade
+{% endif %}
+    }
+}

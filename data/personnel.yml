@@ -1,0 +1,21 @@
+---
+# LA source de vérité du personnel (MC13). Modifiée par les RH, par merge request.
+# Personne ne crée de compte à la main : le playbook personnel.yml applique ce fichier
+# dans AD (salariés), OpenLDAP (prestataires) et sur les Debian (départs).
+#
+#   arrivée     : une nouvelle entrée
+#   mobilité    : changer "service" ou "site"   -> groupes remplacés, pas ajoutés
+#   départ      : ajouter "depart: AAAA-MM-JJTHH:MM" -> désactivé à l'heure dite
+#   prestataire : type: prestataire + expiration    -> OpenLDAP, verrouillé à la date
+personnel:
+  - { id: alice.martin, prenom: Alice, nom: Martin, service: compta, site: lille, arrivee: "2026-09-01" }
+  - { id: bruno.petit, prenom: Bruno, nom: Petit, service: rh, site: lille, arrivee: "2026-09-01" }
+  - { id: chloe.leroy, prenom: Chloe, nom: Leroy, service: it, site: dunkerque, arrivee: "2026-09-01" }
+  - { id: david.lambert, prenom: David, nom: Lambert, service: exploitation, site: dunkerque, arrivee: "2026-09-01" }
+  - { id: emma.roux, prenom: Emma, nom: Roux, service: direction, site: lille, arrivee: "2026-09-01" }
+  - { id: farid.benali, prenom: Farid, nom: Benali, service: exploitation, site: dunkerque, arrivee: "2026-11-02" }
+  # L'ancien chef de quai, parti : désactivé, déplacé dans Departs, jamais supprimé
+  - { id: gilles.morel, prenom: Gilles, nom: Morel, service: exploitation, site: dunkerque, arrivee: "2025-03-01", depart: "2026-11-06T18:00" }
+  # Prestataires : annuaire OpenLDAP, accès limité à la mission
+  - { id: jean.dupont, prenom: Jean, nom: Dupont, type: prestataire, societe: LogiSoft, expiration: "2027-01-31" }
+  - { id: karim.lambert, prenom: Karim, nom: Lambert, type: prestataire, societe: NetFix, expiration: "2026-10-31" }

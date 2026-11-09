@@ -1,0 +1,11 @@
+---
+# Copie des sauvegardes à Lille, hors de la salle serveur de Dunkerque
+interfaces:
+  - name: ens19                    # côté Lille
+    address: 10.1.10.20/24
+    routes:
+      - { to: 10.1.0.0/16, via: 10.1.10.1 }   # pour aller chez les voisins, on passe par le routeur du site
+
+# Les serveurs se connectent avec le compte borg pour déposer leurs sauvegardes :
+# sa clé ne permet QUE "borg serve --append-only" dans son propre dépôt.
+ssh_extra_allow_groups: [gg_admins_linux, borg]

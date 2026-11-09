@@ -1,0 +1,66 @@
+---
+- name: Nom d'hôte
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Hôtes
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 {{ inventory_hostname }}.{{ ad_domain }} {{ inventory_hostname }}"
+    state: present
+
+- name: Fuseau horaire
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Installation de chrony
+  ansible.builtin.apt:
+    name: chrony
+    update_cache: true
+    cache_valid_time: 3600
+  notify: Redémarrer chrony
+
+- name: Configuration chrony
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer chrony
+
+- name: Service chrony
+  ansible.builtin.service:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: Installation de sudo
+  ansible.builtin.apt:
+    name: sudo
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Compte admin
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    password_lock: true
+
+- name: Clé SSH admin
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ admin_ssh_pubkey }}"
+    state: present
+
+- name: Sudoers admin
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: 'visudo -cf %s'

@@ -1,0 +1,7 @@
+---
+# ad = les salariés entrent avec leur compte Windows (cas normal)
+# local = comptes de TRACKR_LOCAL_USERS (labo sans Active Directory)
+trackr_auth: ad
+trackr_demo: true
+# Les DC par leur nom (le certificat LDAPS porte ce nom), celui du site d'abord
+trackr_ad_servers: "{{ (['dc02', 'dc01'] if 'site_b' in group_names else ['dc01', 'dc02']) | map('regex_replace', '$', '.' ~ ad_domain) | list }}"

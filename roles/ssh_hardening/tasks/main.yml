@@ -1,0 +1,35 @@
+---
+- name: Groupe SSH
+  ansible.builtin.group:
+    name: "{{ ssh_admin_group }}"
+    state: present
+
+- name: Membres du groupe SSH
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ ssh_admin_group }}"
+    append: true
+  loop: "{{ ssh_admin_users }}"
+
+- name: Clé SSH
+  ansible.posix.authorized_key:
+    user: "{{ item }}"
+    key: "{{ ssh_admin_pubkey }}"
+    state: present
+  loop: "{{ ssh_admin_users }}"
+  when: ssh_admin_pubkey | length > 0
+
+- name: Durcissement sshd
+  ansible.builtin.template:
+    src: 10-durcissement.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-durcissement.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Valider et recharger sshd
+
+- name: Service ssh
+  ansible.builtin.service:
+    name: ssh
+    enabled: true
+    state: started

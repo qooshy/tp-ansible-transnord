@@ -1,0 +1,40 @@
+---
+- name: Adresse IP fixe sur l'interface LAN
+  ansible.windows.win_powershell:
+    parameters:
+      Alias: "{{ win_lan_alias }}"
+      Ip: "{{ win_lan_ip }}"
+      Prefix: "{{ win_lan_prefix }}"
+    script: |
+      param([string]$Alias, [string]$Ip, [int]$Prefix)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $actuelle = Get-NetIPAddress -InterfaceAlias $Alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq $Ip -and $_.PrefixLength -eq $Prefix }
+      if (-not $actuelle) {
+        Set-NetIPInterface -InterfaceAlias $Alias -Dhcp Disabled
+        Get-NetIPAddress -InterfaceAlias $Alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+          Remove-NetIPAddress -Confirm:$false
+        New-NetIPAddress -InterfaceAlias $Alias -IPAddress $Ip -PrefixLength $Prefix | Out-Null
+        $Ansible.Changed = $true
+      }
+
+- name: Routes vers les autres sites
+  ansible.windows.win_powershell:
+    parameters:
+      Alias: "{{ win_lan_alias }}"
+      Destination: "{{ item.to }}"
+      NextHop: "{{ item.via }}"
+    script: |
+      param([string]$Alias, [string]$Destination, [string]$NextHop)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $route = Get-NetRoute -DestinationPrefix $Destination -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -eq $NextHop }
+      if (-not $route) {
+        New-NetRoute -DestinationPrefix $Destination -InterfaceAlias $Alias -NextHop $NextHop -RouteMetric 10 | Out-Null
+        $Ansible.Changed = $true
+      }
+  loop: "{{ win_routes | default([]) }}"
+  loop_control:
+    label: "{{ item.to }} via {{ item.via }}"

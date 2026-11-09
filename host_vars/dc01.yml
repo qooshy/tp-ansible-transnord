@@ -1,0 +1,14 @@
+---
+win_lan_ip: 10.1.10.10
+win_lan_prefix: 24
+win_routes:
+  - { to: 10.1.0.0/16, via: 10.1.10.1 }   # pour aller chez les voisins, on passe par rtr-a
+# C'est DC01 qui distribue les IP à Lille
+dhcp_scopes:
+  - name: Lille
+    scope_id: 10.1.10.0
+    start: 10.1.10.100
+    end: 10.1.10.200
+    mask: 255.255.255.0
+    router: 10.1.10.1
+    dns: [10.1.10.10, 10.1.20.10]

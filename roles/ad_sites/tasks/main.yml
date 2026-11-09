@@ -1,0 +1,44 @@
+---
+- name: Sites, sous-réseaux et lien de site
+  ansible.windows.win_powershell:
+    parameters:
+      SitesJson: "{{ ad_sites | to_json }}"
+      LinkName: "{{ ad_site_link_name }}"
+      Cost: "{{ ad_site_link_cost }}"
+      Frequency: "{{ ad_site_link_frequency }}"
+    script: |
+      param([string]$SitesJson, [string]$LinkName, [int]$Cost, [int]$Frequency)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $sites = @($SitesJson | ConvertFrom-Json)
+
+      # Default-First-Site-Name, très peu pour nous : il prend le nom du premier site de la liste
+      $defaut = Get-ADReplicationSite -Filter "Name -eq 'Default-First-Site-Name'"
+      if ($defaut) {
+        Rename-ADObject -Identity $defaut.DistinguishedName -NewName $sites[0].name
+        $Ansible.Changed = $true
+      }
+
+      foreach ($s in $sites) {
+        if (-not (Get-ADReplicationSite -Filter "Name -eq '$($s.name)'")) {
+          New-ADReplicationSite -Name $s.name
+          $Ansible.Changed = $true
+        }
+        foreach ($reseau in $s.subnets) {
+          if (-not (Get-ADReplicationSubnet -Filter "Name -eq '$reseau'")) {
+            New-ADReplicationSubnet -Name $reseau -Site $s.name
+            $Ansible.Changed = $true
+          }
+        }
+      }
+
+      $noms = @($sites | ForEach-Object { $_.name })
+      $lien = Get-ADReplicationSiteLink -Filter "Name -eq '$LinkName'"
+      if (-not $lien) {
+        New-ADReplicationSiteLink -Name $LinkName -SitesIncluded $noms -Cost $Cost `
+          -ReplicationFrequencyInMinutes $Frequency -InterSiteTransportProtocol IP
+        $Ansible.Changed = $true
+      } elseif ($lien.Cost -ne $Cost -or $lien.ReplicationFrequencyInMinutes -ne $Frequency) {
+        Set-ADReplicationSiteLink -Identity $LinkName -Cost $Cost -ReplicationFrequencyInMinutes $Frequency
+        $Ansible.Changed = $true
+      }

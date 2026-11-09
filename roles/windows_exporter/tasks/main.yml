@@ -1,0 +1,20 @@
+---
+# MC15 : l'agent de supervision Windows, lu par Prometheus sur MON01
+- name: windows_exporter (services AD, DNS, disques, CPU)
+  ansible.windows.win_package:
+    path: "https://github.com/prometheus-community/windows_exporter/releases/download/v{{ windows_exporter_version }}/windows_exporter-{{ windows_exporter_version }}-amd64.msi"
+    arguments: ENABLED_COLLECTORS=cpu,cs,logical_disk,net,os,service,system,time,ad,dns
+    creates_service: windows_exporter
+    state: present
+
+- name: Pare-feu - seul MON01 lit les mesures
+  community.windows.win_firewall_rule:
+    name: LogiNord - windows_exporter
+    localport: 9182
+    protocol: tcp
+    remoteip: "{{ hostvars[groups['monitoring'][0]].lan_ip }}"
+    action: allow
+    direction: in
+    profiles: [domain, private, public]
+    state: present
+    enabled: true

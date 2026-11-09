@@ -1,0 +1,3 @@
+---
+# Les informaticiens en poste (data/personnel.yml)
+vpn_users: "{{ personnel | default([]) | rejectattr('type', 'defined') | selectattr('service', 'eq', 'it') | rejectattr('depart', 'defined') | list }}"

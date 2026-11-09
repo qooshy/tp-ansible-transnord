@@ -1,0 +1,30 @@
+---
+# DÉMO / TEST (MC15) : on remplit le disque de web01 au-delà de 90 %.
+# L'alerte "DisqueBientotPlein" arrive au bout de 5 minutes (la durée "for" de la règle).
+#   ansible-playbook demo-disque-plein.yml
+#   ansible-playbook demo-disque-plein.yml -e nettoyer=oui
+- name: Disque rempli pour de vrai
+  hosts: trackr
+  gather_facts: true
+  vars:
+    nettoyer: non
+    fichier: /var/tmp/demo-disque-plein
+  tasks:
+    - name: Place à prendre pour dépasser 90 % sur /
+      ansible.builtin.set_fact:
+        a_remplir: >-
+          {{ ((ansible_facts['mounts'] | selectattr('mount', 'eq', '/') | first).size_available
+              - 0.07 * (ansible_facts['mounts'] | selectattr('mount', 'eq', '/') | first).size_total) | int }}
+      when: nettoyer != 'oui'
+
+    - name: Remplissage (fallocate)
+      ansible.builtin.command: "fallocate -l {{ a_remplir }} {{ fichier }}"
+      args:
+        creates: "{{ fichier }}"
+      when: nettoyer != 'oui' and a_remplir | int > 0
+
+    - name: Nettoyage
+      ansible.builtin.file:
+        path: "{{ fichier }}"
+        state: absent
+      when: nettoyer == 'oui'

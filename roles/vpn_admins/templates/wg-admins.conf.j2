@@ -1,0 +1,12 @@
+# {{ ansible_managed }} - un [Peer] par informaticien en poste
+[Interface]
+Address = {{ vpn_admin_ip }}/24
+ListenPort = {{ vpn_admin_port }}
+PostUp = wg set %i private-key /etc/wireguard/%i.key
+{% for u in vpn_users %}
+
+# {{ u.prenom }} {{ u.nom }}
+[Peer]
+PublicKey = {{ wg_pub['/etc/wireguard/admins/' ~ u.id ~ '.key'] }}
+AllowedIPs = {{ vpn_admin_ip.rsplit('.', 1)[0] }}.{{ 10 + loop.index0 }}/32
+{% endfor %}

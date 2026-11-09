@@ -1,0 +1,17 @@
+---
+# DÉMO : un sinistre efface toutes les expéditions (erreur, rançongiciel...).
+# Ensuite : ansible-playbook restaurer-trackr.yml -e cible=trackr -e confirmer=oui
+- name: Sinistre simulé sur la base TrackR
+  hosts: databases
+  gather_facts: false
+  tasks:
+    - name: La sauvegarde de l'heure (comme le timer horaire l'aurait faite)
+      ansible.builtin.systemd:
+        name: sauvegarde.service
+        state: started
+
+    - name: Toutes les expéditions effacées
+      ansible.builtin.command: psql -d trackr -c "TRUNCATE expeditions"
+      become: true
+      become_user: postgres
+      changed_when: true

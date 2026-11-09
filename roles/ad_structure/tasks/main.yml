@@ -1,0 +1,65 @@
+---
+- name: OU racine
+  microsoft.ad.ou:
+    name: "{{ ad_root_ou }}"
+    path: "{{ ad_base_dn }}"
+    state: present
+
+- name: OU des sites
+  microsoft.ad.ou:
+    name: "{{ item }}"
+    path: "OU={{ ad_root_ou }},{{ ad_base_dn }}"
+    state: present
+  loop: "{{ ad_site_ous }}"
+
+- name: OU dans chaque site
+  microsoft.ad.ou:
+    name: "{{ item.1 }}"
+    path: "OU={{ item.0 }},OU={{ ad_root_ou }},{{ ad_base_dn }}"
+    state: present
+  loop: "{{ ad_site_ous | product(ad_site_sub_ous) | list }}"
+
+- name: Autres OU
+  microsoft.ad.ou:
+    name: "{{ item }}"
+    path: "OU={{ ad_root_ou }},{{ ad_base_dn }}"
+    state: present
+  loop: "{{ ad_other_ous }}"
+
+- name: Groupes
+  microsoft.ad.group:
+    name: "{{ item.name }}"
+    scope: "{{ item.scope }}"
+    category: security
+    path: "OU=Groupes,OU={{ ad_root_ou }},{{ ad_base_dn }}"
+    state: present
+  loop: "{{ ad_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Membres des groupes DL (AGDLP)
+  microsoft.ad.group:
+    identity: "{{ item.name }}"
+    members:
+      add: "{{ item.members }}"
+    state: present
+  loop: "{{ ad_groups | selectattr('members', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Utilisateurs de test
+  microsoft.ad.user:
+    name: "{{ item.name }}"
+    firstname: "{{ item.firstname }}"
+    surname: "{{ item.surname }}"
+    upn: "{{ item.name }}@{{ ad_domain }}"
+    path: "OU=Utilisateurs,OU={{ item.site }},OU={{ ad_root_ou }},{{ ad_base_dn }}"
+    password: "{{ vault_ad_user_password }}"
+    update_password: on_create
+    groups:
+      add: "{{ item.groups }}"
+    state: present
+  loop: "{{ ad_test_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true

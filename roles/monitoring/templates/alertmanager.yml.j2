@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+# Les alertes partent à l'équipe informatique : par e-mail, et sur Discord si un
+# webhook est donné dans le vault (vault_discord_webhook). Un canal TESTÉ (MC15).
+global:
+  smtp_smarthost: 127.0.0.1:1025
+  smtp_from: supervision@{{ ad_domain }}
+  smtp_require_tls: false
+
+route:
+  receiver: informatique
+  group_by: [alertname, host]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: informatique
+    email_configs:
+      - to: {{ alert_email }}
+        send_resolved: true
+        headers:
+          Subject: '[{{ '{{' }} .Status | toUpper {{ '}}' }}] {{ '{{' }} .CommonAnnotations.summary {{ '}}' }}'
+{% if alert_discord_webhook %}
+    discord_configs:
+      - webhook_url: {{ alert_discord_webhook }}
+        send_resolved: true
+        title: '[{{ '{{' }} .Status | toUpper {{ '}}' }}] {{ '{{' }} .CommonAnnotations.summary {{ '}}' }}'
+        message: '{{ '{{' }} .CommonAnnotations.description {{ '}}' }}'
+{% endif %}
+
+inhibit_rules:
+  # Le tunnel est coupé : inutile de recevoir aussi "tel serveur de l'autre site ne répond plus"
+  - source_matchers: [alertname="TunnelInterSitesCoupe"]
+    target_matchers: [alertname="ServeurInjoignable"]

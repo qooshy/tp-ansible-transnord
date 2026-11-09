@@ -1,0 +1,6 @@
+---
+# Réglages propres au labo, passés en -e (ils l'emportent sur tout le reste).
+# Pas d'Active Directory ici : TrackR utilise des comptes locaux, l'heure vient d'Internet.
+trackr_auth: local
+ntp_servers: [0.fr.pool.ntp.org, 1.fr.pool.ntp.org]
+vpn_admin_endpoint: 127.0.0.1

@@ -1,0 +1,18 @@
+---
+- name: Redémarrer journald
+  ansible.builtin.service: { name: systemd-journald, state: restarted }
+
+- name: Redémarrer rsyslog
+  ansible.builtin.service: { name: rsyslog, state: restarted }
+
+- name: Recharger auditd
+  ansible.builtin.command: augenrules --load
+  changed_when: true
+
+- name: Redémarrer auditd
+  ansible.builtin.command: service auditd restart
+  changed_when: true
+
+- name: Mettre à jour les autorités
+  ansible.builtin.command: update-ca-certificates
+  changed_when: true

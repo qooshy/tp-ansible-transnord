@@ -1,0 +1,43 @@
+---
+# Autorité de certification interne, sur le poste qui lance Ansible.
+# Idempotent : rien n'est régénéré tant que les fichiers sont valides.
+- name: Dossier de l'autorité
+  ansible.builtin.file:
+    path: "{{ pki_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Clé de l'autorité
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/{{ ca_name }}.key"
+    type: ECC
+    curve: secp384r1
+    mode: "0600"
+
+- name: Demande de certificat de l'autorité
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/{{ ca_name }}.key"
+    common_name: LogiNord - autorite interne
+    organization_name: LogiNord
+    basic_constraints: ["CA:TRUE", "pathlen:0"]
+    basic_constraints_critical: true
+    key_usage: [keyCertSign, cRLSign]
+    key_usage_critical: true
+  register: ca_csr
+  changed_when: false
+
+- name: Certificat de l'autorité (10 ans)
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/{{ ca_name }}.crt"
+    csr_content: "{{ ca_csr.csr }}"
+    privatekey_path: "{{ pki_dir }}/{{ ca_name }}.key"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+    mode: "0644"
+
+- name: Certificats des services
+  ansible.builtin.include_tasks: emettre.yml
+  loop: "{{ pki_certificates }}"
+  loop_control:
+    loop_var: cert
+    label: "{{ cert.name }}"

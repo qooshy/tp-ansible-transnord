@@ -1,0 +1,43 @@
+---
+# Inventaire du LABO (lab/Vagrantfile) : mêmes machines et mêmes groupes que
+# inventory/hosts.yml, sans les Windows. Ansible passe par la carte NAT de chaque VM :
+# depuis la VM "ctl", 10.0.2.2 est le PC, qui renvoie chaque port vers la bonne VM.
+all:
+  vars:
+    ansible_host: 10.0.2.2
+  children:
+    site_a:
+      hosts:
+        rtr-a: { ansible_port: 22201 }
+        bkp01: { ansible_port: 22212 }
+    site_b:
+      hosts:
+        rtr-b: { ansible_port: 22202 }
+        web01: { ansible_port: 22220 }
+        db01: { ansible_port: 22221 }
+        mon01: { ansible_port: 22230 }
+        ldap01: { ansible_port: 22231 }
+    linux:
+      hosts: { rtr-a: , rtr-b: , web01: , db01: , mon01: , ldap01: , bkp01: }
+    routers:
+      hosts: { rtr-a: , rtr-b: }
+    linux_servers:
+      hosts: { web01: , db01: , mon01: , ldap01: , bkp01: }
+    windows:
+      hosts: {}
+    dcs:
+      children:
+        ad_primary:
+          hosts: {}
+        ad_replicas:
+          hosts: {}
+    trackr:
+      hosts: { web01: }
+    databases:
+      hosts: { db01: }
+    ldap_servers:
+      hosts: { ldap01: }
+    monitoring:
+      hosts: { mon01: }
+    backup_servers:
+      hosts: { bkp01: }

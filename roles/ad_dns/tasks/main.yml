@@ -1,0 +1,34 @@
+---
+- name: Zones inverses
+  ansible.windows.win_dns_zone:
+    name: "{{ item }}"
+    type: primary
+    replication: domain
+    state: present
+  loop: "{{ ad_dns_reverse_zones }}"
+
+- name: Enregistrements
+  ansible.windows.win_dns_record:
+    zone: "{{ ad_domain }}"
+    name: "{{ item.name }}"
+    type: "{{ item.type }}"
+    value: "{{ item.value }}"
+    state: present
+  loop: "{{ ad_dns_records }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Redirecteurs (résolution d'Internet)
+  ansible.windows.win_powershell:
+    parameters:
+      Forwarders: "{{ ad_dns_forwarders | join(',') }}"
+    script: |
+      param([string]$Forwarders)
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      $voulus = $Forwarders -split ','
+      $actuels = @((Get-DnsServerForwarder).IPAddress | ForEach-Object { $_.IPAddressToString })
+      if (Compare-Object -ReferenceObject $voulus -DifferenceObject $actuels) {
+        Set-DnsServerForwarder -IPAddress $voulus
+        $Ansible.Changed = $true
+      }

@@ -1,0 +1,21 @@
+---
+# MC13 côté Debian : un départ est coupé ICI aussi, le soir même.
+# Sans vider le cache SSSD, l'ancien salarié pourrait encore se connecter hors ligne (MC6).
+- name: Sessions ouvertes des salariés partis
+  ansible.builtin.command: loginctl list-users --no-legend
+  register: sessions
+  changed_when: false
+
+- name: Fermer leurs sessions
+  ansible.builtin.command: "loginctl terminate-user {{ item }}"
+  loop: "{{ salaries_partis | map(attribute='id') | list }}"
+  when: item in sessions.stdout
+  changed_when: true
+
+- name: Vider le cache SSSD si un départ vient d'être appliqué dans l'AD
+  ansible.builtin.command: sss_cache -E
+  when: >-
+    groups['ad_primary'] | default([]) | length > 0
+    and hostvars[groups['ad_primary'][0]].departs_ad is defined
+    and hostvars[groups['ad_primary'][0]].departs_ad is changed
+  changed_when: true

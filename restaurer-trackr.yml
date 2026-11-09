@@ -1,0 +1,94 @@
+---
+# MC11 : "une sauvegarde jamais restaurée n'est pas une sauvegarde".
+#   ansible-playbook restaurer-trackr.yml
+#       -> restaure la dernière sauvegarde dans une base de TEST (trackr_test) et compte
+#          les expéditions : la preuve que la sauvegarde est bonne, sans rien toucher.
+#   ansible-playbook restaurer-trackr.yml -e cible=trackr -e confirmer=oui
+#       -> remet la base de production à l'état de la dernière sauvegarde
+#   ... -e source=lille   prend la copie de Lille (bkp01) si db01 a perdu ses fichiers
+
+- name: Restauration de la base TrackR
+  hosts: databases
+  vars_files:
+    - vault/secrets.yml
+  vars:
+    cible: trackr_test
+    source: local
+    confirmer: non
+  tasks:
+    - name: Garde-fou pour la production
+      ansible.builtin.assert:
+        that: cible != 'trackr' or confirmer == 'oui'
+        fail_msg: "Restaurer la PRODUCTION écrase les données actuelles : ajouter -e confirmer=oui"
+
+    - name: Dernier export local
+      ansible.builtin.shell: set -o pipefail; ls -1t /var/backups/pg/trackr-*.dump | head -1
+      args:
+        executable: /bin/bash
+      register: dernier_local
+      changed_when: false
+      failed_when: false
+      when: source == 'local'
+
+    - name: Sinon, dernière sauvegarde de Lille
+      when: source == 'lille'
+      block:
+        - name: Dernière archive à Lille
+          ansible.builtin.command: borg list --short --last 1
+          environment: &borg
+            BORG_REPO: "ssh://borg@{{ hostvars[groups['backup_servers'][0]].lan_ip }}/srv/borg/depots/{{ inventory_hostname }}"
+            BORG_PASSCOMMAND: cat /root/.borg-passphrase
+            BORG_RSH: ssh -i /root/.ssh/id_sauvegarde -o BatchMode=yes
+          register: archive
+          changed_when: false
+
+        - name: Extraction de l'export
+          ansible.builtin.command: borg extract "::{{ archive.stdout | trim }}" var/backups/loginord/trackr.dump
+          args:
+            chdir: /tmp
+          environment: *borg
+          changed_when: true
+
+    - name: Fichier retenu
+      ansible.builtin.set_fact:
+        dump: "{{ '/tmp/var/backups/loginord/trackr.dump' if source == 'lille' else dernier_local.stdout }}"
+
+    - name: Une sauvegarde existe
+      ansible.builtin.assert:
+        that: dump | length > 0
+        fail_msg: "Aucune sauvegarde trouvée dans /var/backups/pg (essayer -e source=lille)"
+
+    - name: Base de test vidée
+      community.postgresql.postgresql_db:
+        name: trackr_test
+        state: absent
+      become: true
+      become_user: postgres
+      when: cible == 'trackr_test'
+
+    - name: Base cible prête
+      community.postgresql.postgresql_db:
+        name: "{{ cible }}"
+        owner: trackr
+      become: true
+      become_user: postgres
+
+    - name: Restauration
+      ansible.builtin.shell: >
+        runuser -u postgres -- pg_restore --clean --if-exists --no-owner --role=trackr -d {{ cible }} < {{ dump }}
+      changed_when: true
+
+    - name: Nombre d'expéditions restaurées
+      ansible.builtin.command: psql -d {{ cible }} -tAc "SELECT count(*) FROM expeditions"
+      become: true
+      become_user: postgres
+      register: compte
+      changed_when: false
+
+    - name: Trace dans le journal (donc sur MON01)
+      ansible.builtin.command: logger -t restauration "Base {{ cible }} restaurée depuis {{ dump }} ({{ compte.stdout }} expéditions)"
+      changed_when: false
+
+    - name: Résultat
+      ansible.builtin.debug:
+        msg: "{{ compte.stdout }} expéditions restaurées dans la base {{ cible }} depuis {{ dump }}"

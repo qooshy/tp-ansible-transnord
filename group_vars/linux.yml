@@ -1,0 +1,7 @@
+---
+ansible_user: debian
+ansible_become: true
+ssh_admin_users:
+  - "{{ ansible_user }}"
+  - "{{ admin_user }}"
+ssh_admin_pubkey: "{{ admin_ssh_pubkey }}"

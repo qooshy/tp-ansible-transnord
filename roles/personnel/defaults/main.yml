@@ -1,0 +1,15 @@
+---
+# Calculé depuis data/personnel.yml et data/regles.yml (chargés par le playbook)
+maintenant: "{{ now(fmt='%Y-%m-%dT%H:%M') }}"
+salaries: "{{ personnel | rejectattr('type', 'defined') | list }}"
+salaries_partis: >-
+  {{ salaries | selectattr('depart', 'defined')
+     | selectattr('depart', 'string') | selectattr('depart', 'le', maintenant) | list }}
+salaries_presents: "{{ salaries | reject('in', salaries_partis) | list }}"
+informaticiens: "{{ salaries | selectattr('service', 'in', regles_comptes_admin.services) | list }}"
+# Les identifiants à chercher dans l'AD : chaque salarié, et le compte adm- des informaticiens
+personnel_ids: "{{ (salaries | map(attribute='id') | list) + (informaticiens | map(attribute='id') | map('regex_replace', '^', 'adm-') | list) }}"
+# Ce qu'il faut désactiver : les partis, et le compte adm- des informaticiens partis
+ids_partis: >-
+  {{ (salaries_partis | map(attribute='id') | list)
+     + (salaries_partis | selectattr('service', 'in', regles_comptes_admin.services) | map(attribute='id') | map('regex_replace', '^', 'adm-') | list) }}

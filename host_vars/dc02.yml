@@ -1,0 +1,6 @@
+---
+win_lan_ip: 10.1.20.10
+win_lan_prefix: 24
+win_routes:
+  - { to: 10.1.0.0/16, via: 10.1.20.1 }   # pour aller chez les voisins, on passe par rtr-b
+ad_site: Dunkerque

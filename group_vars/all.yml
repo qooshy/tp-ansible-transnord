@@ -1,0 +1,46 @@
+---
+# --- Ce que toutes les machines partagent ---
+timezone: Europe/Paris
+win_timezone: Romance Standard Time
+ntp_servers:
+  - 0.fr.pool.ntp.org
+  - 1.fr.pool.ntp.org
+admin_user: lnadmin
+admin_ssh_pubkey: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+ssh_admin_group: ssh-admins
+
+# --- Qui habite où sur le réseau ---
+lan_supernet: 10.1.0.0/16          # tous les LAN des sites tiennent là-dedans
+wan_net: 192.0.2.0/24              # notre faux Internet entre les deux routeurs
+wg_net: 10.255.0.0/30              # le petit /30 du tunnel WireGuard
+
+# --- Côté Active Directory ---
+ad_domain: loginord.internal
+ad_netbios: LOGINORD
+ad_base_dn: "{{ 'DC=' + (ad_domain.split('.') | join(',DC=')) }}"
+dc01_ip: 10.1.10.10
+dc02_ip: 10.1.20.10
+
+# =====================================================================
+# Ajouts MC6 à MC15 (TrackR, annuaires, supervision, sauvegardes...)
+# =====================================================================
+# L'adresse LAN de chaque machine, tirée de ses host_vars : les services se
+# parlent par IP, ils ne tombent donc pas avec le DNS.
+lan_ip: "{{ win_lan_ip if win_lan_ip is defined else (interfaces | first).address.split('/')[0] }}"
+# Le DC du site d'abord : si le tunnel tombe, chaque site reste autonome (MC5, MC6)
+site_dc_ips: "{{ [dc01_ip, dc02_ip] if 'site_a' in group_names else [dc02_ip, dc01_ip] }}"
+
+# --- TrackR ---
+trackr_fqdn: "trackr.{{ ad_domain }}"
+trackr_ad_group: DL_TrackR_Acces          # AGDLP : les GG autorisés sont membres de ce DL
+
+# --- Annuaire des prestataires (OpenLDAP) ---
+ldap_base: "{{ 'dc=' + (ad_domain.split('.') | join(',dc=')) }}"
+
+# --- Autorité de certification interne (sur le poste qui lance Ansible) ---
+pki_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.loginord-pki"
+ca_name: loginord-ca
+
+# --- Alertes (MC15) : e-mail, et un webhook Discord si on en donne un ---
+alert_email: informatique@loginord.internal
+alert_discord_webhook: "{{ vault_discord_webhook | default('') }}"

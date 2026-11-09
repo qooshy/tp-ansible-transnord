@@ -1,0 +1,83 @@
+---
+- name: Clé du dépôt Grafana
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: "0644"
+
+- name: Dépôt Grafana
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+    filename: grafana
+    state: present
+
+- name: Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+
+- name: Réglages Grafana
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: "{{ item.s }}"
+    option: "{{ item.o }}"
+    value: "{{ item.v }}"
+    mode: "0640"
+    group: grafana
+  loop:
+    - { s: security, o: admin_password, v: "{{ vault_grafana_admin_password }}" }
+    - { s: auth.anonymous, o: enabled, v: "true" }       # écran de supervision en lecture seule
+    - { s: auth.anonymous, o: org_role, v: Viewer }
+    - { s: dashboards, o: default_home_dashboard_path, v: /var/lib/grafana/dashboards/loginord.json }
+    - { s: users, o: default_language, v: fr-FR }
+    - { s: analytics, o: reporting_enabled, v: "false" }
+    - { s: analytics, o: check_for_updates, v: "false" }
+  loop_control: { label: "{{ item.s }}.{{ item.o }}" }
+  no_log: true
+  notify: Redémarrer grafana
+
+- name: Source de données Prometheus
+  ansible.builtin.copy:
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    mode: "0644"
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          url: http://localhost:9090
+          isDefault: true
+          editable: false
+  notify: Redémarrer grafana
+
+- name: Fournisseur de tableaux de bord
+  ansible.builtin.copy:
+    dest: /etc/grafana/provisioning/dashboards/loginord.yml
+    mode: "0644"
+    content: |
+      apiVersion: 1
+      providers:
+        - name: LogiNord
+          folder: LogiNord
+          type: file
+          allowUiUpdates: false
+          options:
+            path: /var/lib/grafana/dashboards
+  notify: Redémarrer grafana
+
+- name: Dossier des tableaux de bord
+  ansible.builtin.file:
+    path: /var/lib/grafana/dashboards
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+
+- name: Tableau de bord "LogiNord - vue client"
+  ansible.builtin.copy:
+    src: loginord.json
+    dest: /var/lib/grafana/dashboards/loginord.json
+    owner: grafana
+    group: grafana
+    mode: "0644"

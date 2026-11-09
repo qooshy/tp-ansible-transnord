@@ -1,0 +1,33 @@
+---
+# DÉMO (MC11) : on tue TrackR brutalement (kill -9). systemd le relance seul en 5 s.
+#   ansible-playbook demo-panne-trackr.yml
+- name: TrackR tué puis relancé par systemd
+  hosts: trackr
+  gather_facts: false
+  tasks:
+    - name: PID de TrackR avant
+      ansible.builtin.command: systemctl show -p MainPID --value trackr
+      register: avant
+      changed_when: false
+
+    - name: kill -9
+      ansible.builtin.command: "kill -9 {{ avant.stdout }}"
+      changed_when: true
+
+    - name: TrackR répond de nouveau
+      ansible.builtin.uri:
+        url: https://127.0.0.1/health
+        validate_certs: false
+      register: sante
+      retries: 15
+      delay: 2
+      until: sante.status == 200
+
+    - name: PID après
+      ansible.builtin.command: systemctl show -p MainPID --value trackr
+      register: apres
+      changed_when: false
+
+    - name: Résultat
+      ansible.builtin.debug:
+        msg: "TrackR tué (PID {{ avant.stdout }}), relancé seul par systemd (PID {{ apres.stdout }}). Les camions n'ont rien vu."

@@ -1,0 +1,218 @@
+---
+# MC7 : l'annuaire des PRESTATAIRES, séparé de l'AD des salariés.
+# - installé sans aucune question (debconf AVANT apt)
+# - échanges chiffrés obligatoires (StartTLS sur 389, LDAPS sur 636)
+# - un prestataire ne lit que sa propre fiche ; SSSD de web01 lit en lecture seule
+# - compte verrouillé à la date de fin de mission, même si personne ne lance Ansible
+- name: slapd déjà installé ?
+  ansible.builtin.command: dpkg-query -W -f='${Status}' slapd
+  register: slapd_pkg
+  changed_when: false
+  failed_when: false
+
+- name: Réponses d'installation pré-remplies (sinon apt pose les questions... à personne)
+  ansible.builtin.debconf:
+    name: slapd
+    question: "{{ item.q }}"
+    value: "{{ item.v }}"
+    vtype: "{{ item.t }}"
+  loop:
+    - { q: slapd/no_configuration, t: boolean, v: "false" }
+    - { q: slapd/domain, t: string, v: "{{ ad_domain }}" }
+    - { q: shared/organization, t: string, v: LogiNord }
+    - { q: slapd/password1, t: password, v: "{{ vault_ldap_admin_password }}" }
+    - { q: slapd/password2, t: password, v: "{{ vault_ldap_admin_password }}" }
+    - { q: slapd/purge_database, t: boolean, v: "true" }
+    - { q: slapd/move_old_database, t: boolean, v: "true" }
+  loop_control: { label: "{{ item.q }}" }
+  when: "'install ok installed' not in slapd_pkg.stdout"
+  no_log: true
+
+- name: Installation de slapd (python3-ldap pour les modules LDAP d'Ansible)
+  ansible.builtin.apt:
+    name: [slapd, ldap-utils, python3-ldap]
+    update_cache: true
+    cache_valid_time: 3600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Dossier des certificats
+  ansible.builtin.file:
+    path: /etc/ldap/tls
+    state: directory
+    owner: root
+    group: openldap
+    mode: "0750"
+
+- name: Certificats TLS (clé lisible par openldap, sinon slapd refuse de démarrer)
+  ansible.builtin.copy:
+    src: "{{ pki_dir }}/{{ item.src }}"
+    dest: "/etc/ldap/tls/{{ item.dest }}"
+    owner: root
+    group: openldap
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "{{ ca_name }}.crt", dest: ca.crt, mode: "0644" }
+    - { src: "{{ inventory_hostname }}.crt", dest: server.crt, mode: "0644" }
+    - { src: "{{ inventory_hostname }}.key", dest: server.key, mode: "0640" }
+  loop_control: { label: "{{ item.dest }}" }
+  notify: Redémarrer slapd
+
+- name: Écoute LDAP (StartTLS), LDAPS et socket locale
+  ansible.builtin.lineinfile:
+    path: /etc/default/slapd
+    regexp: '^SLAPD_SERVICES='
+    line: 'SLAPD_SERVICES="ldap:/// ldaps:/// ldapi:///"'
+  notify: Redémarrer slapd
+
+- name: Les clients font confiance à l'autorité interne
+  ansible.builtin.lineinfile:
+    path: /etc/ldap/ldap.conf
+    regexp: '^TLS_CACERT'
+    line: TLS_CACERT /etc/ssl/certs/ca-certificates.crt
+
+- name: TLS déclaré dans cn=config
+  community.general.ldap_attrs:
+    dn: cn=config
+    attributes:
+      olcTLSCACertificateFile: /etc/ldap/tls/ca.crt
+      olcTLSCertificateFile: /etc/ldap/tls/server.crt
+      olcTLSCertificateKeyFile: /etc/ldap/tls/server.key
+      olcTLSProtocolMin: "3.3"
+      olcLogLevel: stats
+      olcLocalSSF: "128"
+    state: exact
+
+- name: Appliquer
+  ansible.builtin.meta: flush_handlers
+
+- name: Module de politique de mots de passe (verrouillage des comptes)
+  community.general.ldap_attrs:
+    dn: cn=module{0},cn=config
+    attributes:
+      olcModuleLoad: ppolicy
+    state: present
+
+- name: Droits d'accès, et chiffrement obligatoire sur le réseau
+  community.general.ldap_attrs:
+    dn: olcDatabase={1}mdb,cn=config
+    attributes:
+      # TLS ou socket locale ; LDAP en clair sur le réseau refusé
+      olcSecurity: ssf=71
+      olcAccess:
+        - >-
+          {0}to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
+        - >-
+          {1}to attrs=userPassword by self =xw by anonymous auth by * none
+        - >-
+          {2}to attrs=shadowLastChange,pwdAccountLockedTime by self read by * none
+        - >-
+          {3}to dn.subtree="ou=prestataires,{{ ldap_base }}" by self read by dn.exact="cn=sssd,ou=services,{{ ldap_base }}" read by * none
+        - >-
+          {4}to dn.subtree="ou=groupes,{{ ldap_base }}" by dn.exact="cn=sssd,ou=services,{{ ldap_base }}" read by users read by * none
+        - >-
+          {5}to * by * none
+    ordered: true
+    state: exact
+  notify: Redémarrer slapd
+
+- name: Appliquer (olcSecurity n'est pris en compte qu'au redémarrage)
+  ansible.builtin.meta: flush_handlers
+
+- name: Branches de l'annuaire
+  community.general.ldap_entry:
+    dn: "{{ item.dn }}"
+    objectClass: "{{ item.oc }}"
+    attributes: "{{ item.attrs | default({}) }}"
+  loop:
+    - { dn: "ou=prestataires,{{ ldap_base }}", oc: [organizationalUnit], attrs: { description: "Prestataires externes - accès limité à la mission" } }
+    - { dn: "ou=groupes,{{ ldap_base }}", oc: [organizationalUnit] }
+    - { dn: "ou=services,{{ ldap_base }}", oc: [organizationalUnit] }
+    - { dn: "ou=policies,{{ ldap_base }}", oc: [organizationalUnit] }
+    - dn: "cn=default,ou=policies,{{ ldap_base }}"
+      oc: [organizationalRole, pwdPolicy]
+      attrs: { pwdAttribute: userPassword, pwdMinLength: "12", pwdMaxFailure: "5", pwdLockout: "TRUE", pwdLockoutDuration: "900" }
+  loop_control: { label: "{{ item.dn }}" }
+
+- name: Overlay ppolicy
+  community.general.ldap_entry:
+    dn: olcOverlay={0}ppolicy,olcDatabase={1}mdb,cn=config
+    objectClass: [olcOverlayConfig, olcPPolicyConfig]
+    attributes:
+      olcOverlay: "{0}ppolicy"
+      olcPPolicyDefault: "cn=default,ou=policies,{{ ldap_base }}"
+      olcPPolicyHashCleartext: "TRUE"
+
+- name: Compte de lecture pour SSSD (web01)
+  community.general.ldap_entry:
+    dn: "cn=sssd,ou=services,{{ ldap_base }}"
+    objectClass: [organizationalRole, simpleSecurityObject]
+    attributes:
+      userPassword: "{{ vault_ldap_sssd_password }}"
+  no_log: true
+
+- name: Prestataires
+  ansible.builtin.include_tasks: prestataire.yml
+  loop: "{{ ldap_prestataires }}"
+  loop_control:
+    loop_var: presta
+    label: "{{ presta.id }} (fin {{ presta.expiration }})"
+
+- name: Groupe des prestataires de TrackR (ceux dont la mission est en cours)
+  community.general.ldap_entry:
+    dn: "cn={{ ldap_presta_group }},ou=groupes,{{ ldap_base }}"
+    objectClass: [posixGroup]
+    attributes:
+      gidNumber: "{{ ldap_presta_gid }}"
+      description: Prestataires autorisés sur TrackR et web01
+
+- name: Membres du groupe (exactement les missions en cours)
+  community.general.ldap_attrs:
+    dn: "cn={{ ldap_presta_group }},ou=groupes,{{ ldap_base }}"
+    attributes:
+      memberUid: "{{ ldap_prestataires_actifs | map(attribute='id') | list }}"
+    state: exact
+
+- name: Verrouillage automatique quotidien (même si personne ne lance Ansible)
+  ansible.builtin.template:
+    src: prestataires-expiration.sh.j2
+    dest: /usr/local/sbin/prestataires-expiration
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Minuterie de verrouillage
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: prestataires-expiration.service
+      content: |
+        [Unit]
+        Description=Verrouille les prestataires dont la mission est terminée
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/prestataires-expiration
+    - name: prestataires-expiration.timer
+      content: |
+        [Unit]
+        Description=Contrôle quotidien des fins de mission
+        [Timer]
+        OnCalendar=*-*-* 00:05
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  loop_control: { label: "{{ item.name }}" }
+
+- name: Activer la minuterie
+  ansible.builtin.systemd:
+    name: prestataires-expiration.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Contrôles MC7 (StartTLS obligatoire)
+  ansible.builtin.include_tasks: controle.yml

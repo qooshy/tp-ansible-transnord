@@ -1,0 +1,27 @@
+---
+- name: Rôle AD DS
+  ansible.windows.win_feature:
+    name: AD-Domain-Services
+    include_management_tools: true
+    state: present
+
+- name: Création de la forêt
+  microsoft.ad.domain:
+    dns_domain_name: "{{ ad_domain }}"
+    domain_netbios_name: "{{ ad_netbios }}"
+    safe_mode_password: "{{ vault_dsrm_password }}"
+    install_dns: true
+    reboot: true
+  no_log: true
+
+- name: Attendre AD
+  ansible.builtin.include_role:
+    name: ad_wait
+
+- name: DC01 utilise son propre DNS, puis celui de DC02
+  ansible.windows.win_dns_client:
+    adapter_names: "{{ win_lan_alias }}"
+    dns_servers:
+      - "{{ dc01_ip }}"
+      - "{{ dc02_ip }}"
+      - "::1"

@@ -1,0 +1,10 @@
+---
+- name: Valider et recharger sshd
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: true
+  notify: Recharger sshd
+
+- name: Recharger sshd
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded

@@ -1,0 +1,16 @@
+---
+- name: Correctifs de sécurité et critiques, redémarrage si besoin
+  ansible.windows.win_updates:
+    category_names: [SecurityUpdates, CriticalUpdates]
+    state: installed
+    reboot: true
+    reboot_timeout: 1800
+
+- name: Le DC répond de nouveau à l'annuaire avant de passer au suivant
+  ansible.windows.win_powershell:
+    script: Get-ADDomain | Out-Null
+  register: ad_ok
+  retries: 30
+  delay: 20
+  until: ad_ok is succeeded
+  changed_when: false

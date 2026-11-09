@@ -1,0 +1,12 @@
+---
+ansible_connection: winrm
+ansible_port: 5985
+ansible_winrm_transport: ntlm
+ansible_winrm_scheme: http
+ansible_user: Administrator
+ansible_password: "{{ vault_win_password }}"
+
+admin_password: "{{ vault_admin_password }}"
+
+# Le nom de la carte LAN sous Windows varie : un Get-NetAdapter et on ajuste.
+win_lan_alias: Ethernet 2

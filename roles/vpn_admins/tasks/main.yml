@@ -1,0 +1,94 @@
+---
+# Les informaticiens interviennent de chez eux, la nuit ou le week-end : un VPN
+# WireGuard dédié sur rtr-a (wg1), séparé du tunnel inter-sites (wg0).
+# Un accès par informaticien en poste (data/personnel.yml) : un départ le supprime.
+# Une fois connecté : ssh adm-<id>@<serveur> (mot de passe AD), rien d'autre (pare-feu).
+- name: Seulement sur le routeur qui porte le VPN
+  ansible.builtin.meta: end_host
+  when: not (vpn_admin_enabled | default(false))
+
+- name: Dossiers des clés
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: [/etc/wireguard/admins]
+
+- name: Clé du serveur VPN
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/{{ vpn_admin_if }}.key
+  args:
+    creates: "/etc/wireguard/{{ vpn_admin_if }}.key"
+
+- name: Clé de chaque informaticien
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/admins/{{ item.id }}.key
+  args:
+    creates: "/etc/wireguard/admins/{{ item.id }}.key"
+  loop: "{{ vpn_users }}"
+  loop_control: { label: "{{ item.id }}" }
+
+- name: Clés publiques
+  ansible.builtin.shell: wg pubkey < {{ item }}
+  loop: "{{ ['/etc/wireguard/' ~ vpn_admin_if ~ '.key'] + (vpn_users | map(attribute='id') | map('regex_replace', '^(.*)$', '/etc/wireguard/admins/\\1.key') | list) }}"
+  register: pubkeys
+  changed_when: false
+
+- name: Clés privées des informaticiens (pour leur fiche de connexion)
+  ansible.builtin.slurp:
+    src: "/etc/wireguard/admins/{{ item.id }}.key"
+  loop: "{{ vpn_users }}"
+  loop_control: { label: "{{ item.id }}" }
+  register: privkeys
+  no_log: true
+
+- name: Index des clés
+  ansible.builtin.set_fact:
+    wg_pub: "{{ dict(pubkeys.results | map(attribute='item') | zip(pubkeys.results | map(attribute='stdout'))) }}"
+    wg_priv: "{{ dict(privkeys.results | map(attribute='item.id') | zip(privkeys.results | map(attribute='content') | map('b64decode') | map('trim'))) }}"
+  no_log: true
+
+- name: Configuration du VPN
+  ansible.builtin.template:
+    src: wg-admins.conf.j2
+    dest: "/etc/wireguard/{{ vpn_admin_if }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Redémarrer le VPN admin
+
+- name: Fiches de connexion, rapatriées sur le poste qui lance Ansible
+  ansible.builtin.template:
+    src: client.conf.j2
+    dest: "/etc/wireguard/admins/{{ item.0.id }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ vpn_users | zip(range(vpn_users | length)) | list }}"
+  loop_control: { label: "{{ item.0.id }}" }
+  no_log: true
+
+- name: Copie sur le poste d'administration (à transmettre à chacun)
+  ansible.builtin.fetch:
+    src: "/etc/wireguard/admins/{{ item.id }}.conf"
+    dest: "{{ lookup('ansible.builtin.env', 'HOME') }}/.loginord-vpn/{{ item.id }}.conf"
+    flat: true
+  loop: "{{ vpn_users }}"
+  loop_control: { label: "{{ item.id }}" }
+
+- name: Accès retiré aux personnes qui ne sont plus à l'informatique
+  ansible.builtin.shell: |
+    cd /etc/wireguard/admins
+    for f in *.key *.conf; do
+      [ -e "$f" ] || continue
+      id="${f%.*}"
+      case " {{ vpn_users | map(attribute='id') | join(' ') }} " in *" $id "*) ;; *) rm -f "$f"; echo "$id";; esac
+    done
+  register: retires
+  changed_when: retires.stdout | length > 0
+
+- name: VPN démarré
+  ansible.builtin.service:
+    name: "wg-quick@{{ vpn_admin_if }}"
+    enabled: true
+    state: started

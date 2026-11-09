@@ -1,0 +1,17 @@
+---
+# Les droits se CALCULENT à partir du service et du site : jamais saisis à la main (MC13).
+regles_services:
+  direction: [GG_Direction]
+  rh: [GG_RH]
+  compta: [GG_Compta]
+  exploitation: [GG_Exploitation]
+  it: [GG_IT]
+# Les informaticiens ont un second compte, adm-<id>, pour administrer (MC13)
+regles_comptes_admin:
+  services: [it]
+  groupes: [GG_Admins_Linux]
+regles_sites:
+  lille: "OU=Utilisateurs,OU=Lille,OU=LogiNord"
+  dunkerque: "OU=Utilisateurs,OU=Dunkerque,OU=LogiNord"
+regles_ou_admins: "OU=Admins,OU=LogiNord"
+regles_ou_departs: "OU=Departs,OU=LogiNord"

@@ -1,0 +1,10 @@
+---
+collections:
+  - name: ansible.posix
+  - name: ansible.windows
+  - name: community.general
+  - name: community.windows
+  - name: microsoft.ad
+  # Ajouts MC6 à MC15
+  - name: community.crypto        # autorité de certification interne, clés SSH de sauvegarde
+  - name: community.postgresql    # base de TrackR

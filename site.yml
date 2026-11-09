@@ -1,0 +1,153 @@
+---
+# C'est ici que tout démarre : on monte LogiNord des routeurs jusqu'aux deux DC.
+# Envie de ne jouer qu'un morceau ?  ansible-playbook site.yml --tags routeurs
+
+- name: Socle des serveurs Linux
+  hosts: linux
+  tags: [socle, linux]
+  roles:
+    - role: baseline
+    - role: ssh_hardening
+
+- name: Routeurs et tunnel entre les sites
+  hosts: routers
+  tags: [routeurs]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: network
+    - role: router
+    - role: wireguard
+    - role: frr
+
+- name: Réseau des serveurs Linux
+  hosts: linux_servers
+  tags: [linux]
+  roles:
+    - role: network
+
+- name: Socle des serveurs Windows
+  hosts: windows
+  tags: [socle, windows]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: baseline
+    - role: win_network
+
+- name: DC01 - forêt, DNS, annuaire, sites, DHCP
+  hosts: ad_primary
+  tags: [ad, dc01]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: ad_forest
+    - role: ad_dns
+    - role: ad_structure
+    - role: ad_sites
+    - role: ad_dhcp
+    - role: ad_ldaps
+
+- name: DC02 - contrôleur de domaine du site B
+  hosts: ad_replicas
+  tags: [ad, dc02]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: ad_replica
+    - role: ad_ldaps
+
+# =====================================================================
+# MC6 à MC15 : ce qui se construit par-dessus la base
+# =====================================================================
+
+- name: Autorité de certification interne (sur le poste qui lance Ansible)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [pki, linux]
+  roles:
+    - role: pki
+
+- name: Socle commun des Debian (mises à jour de sécurité, journaux, supervision)
+  hosts: linux
+  tags: [socle, linux]
+  roles:
+    - role: socle_linux
+
+- name: VPN des informaticiens (accès depuis chez eux)
+  hosts: routers
+  tags: [routeurs, vpn, personnel]
+  vars_files:
+    - vault/secrets.yml
+    - data/personnel.yml
+  roles:
+    - role: vpn_admins
+
+- name: Serveurs de sauvegarde (Lille)
+  hosts: backup_servers
+  tags: [sauvegarde]
+  roles:
+    - role: backup_server
+
+- name: MC6 - les Debian dans le domaine (realm join, SSSD, sudo GG_Admins_Linux)
+  hosts: linux_servers
+  tags: [ad_linux, mc06]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: ad_client
+    - role: ssh_hardening
+
+- name: MC7 - l'annuaire des prestataires (OpenLDAP)
+  hosts: ldap_servers
+  tags: [ldap, mc07, personnel]
+  vars_files:
+    - vault/secrets.yml
+    - data/personnel.yml
+  roles:
+    - role: openldap
+
+- name: MC11 - la base de TrackR (db01)
+  hosts: databases
+  tags: [trackr, mc11]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: postgresql
+
+- name: MC11 - TrackR en service (web01)
+  hosts: trackr
+  tags: [trackr, mc11]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: trackr
+
+- name: MC15 - supervision et journaux (mon01)
+  hosts: monitoring
+  tags: [supervision, mc15]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: monitoring
+
+- name: MC15 - agent de supervision des Windows
+  hosts: windows
+  tags: [supervision, mc15, windows]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: windows_exporter
+
+- name: MC11 - sauvegardes horaires (base) et nocturnes, copiées à Lille
+  hosts: linux_servers
+  tags: [sauvegarde, mc11]
+  vars_files:
+    - vault/secrets.yml
+  roles:
+    - role: sauvegarde
+
+- name: MC13 - le personnel (arrivées, mobilités, départs)
+  ansible.builtin.import_playbook: personnel.yml

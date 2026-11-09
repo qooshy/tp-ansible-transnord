@@ -1,0 +1,36 @@
+---
+- name: Avant la promotion, le DNS pointe vers DC01
+  ansible.windows.win_dns_client:
+    adapter_names: "{{ win_lan_alias }}"
+    dns_servers:
+      - "{{ dc01_ip }}"
+
+- name: Rôle AD DS
+  ansible.windows.win_feature:
+    name: AD-Domain-Services
+    include_management_tools: true
+    state: present
+
+- name: Promotion en contrôleur de domaine
+  microsoft.ad.domain_controller:
+    dns_domain_name: "{{ ad_domain }}"
+    domain_admin_user: "Administrator@{{ ad_domain }}"
+    domain_admin_password: "{{ vault_win_password }}"
+    safe_mode_password: "{{ vault_dsrm_password }}"
+    site_name: "{{ ad_site }}"
+    install_dns: true
+    state: domain_controller
+    reboot: true
+  no_log: true
+
+- name: Attendre AD
+  ansible.builtin.include_role:
+    name: ad_wait
+
+- name: Après la promotion, DC02 utilise son propre DNS, puis DC01
+  ansible.windows.win_dns_client:
+    adapter_names: "{{ win_lan_alias }}"
+    dns_servers:
+      - "{{ dc02_ip }}"
+      - "{{ dc01_ip }}"
+      - "::1"

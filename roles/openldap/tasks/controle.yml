@@ -1,0 +1,26 @@
+---
+- name: Contrôle MC7 - un prestataire interroge l'annuaire en StartTLS obligatoire (-ZZ)
+  ansible.builtin.command:
+    cmd: >-
+      ldapsearch -LLL -x -ZZ -H ldap://{{ lan_ip }}
+      -D uid={{ ldap_check_user }},ou=prestataires,{{ ldap_base }} -y /dev/stdin
+      -b uid={{ ldap_check_user }},ou=prestataires,{{ ldap_base }} uid o description
+    stdin: "{{ vault_presta_password }}"
+    stdin_add_newline: false
+  changed_when: false
+  no_log: true
+  when: ldap_check_user | length > 0
+
+- name: Contrôle MC7 - une connexion NON chiffrée est refusée
+  ansible.builtin.command:
+    cmd: >-
+      ldapsearch -LLL -x -H ldap://{{ lan_ip }}
+      -D uid={{ ldap_check_user }},ou=prestataires,{{ ldap_base }} -y /dev/stdin
+      -b uid={{ ldap_check_user }},ou=prestataires,{{ ldap_base }} uid
+    stdin: "{{ vault_presta_password }}"
+    stdin_add_newline: false
+  register: ldap_clear_check
+  changed_when: false
+  failed_when: ldap_clear_check.rc == 0
+  no_log: true
+  when: ldap_check_user | length > 0

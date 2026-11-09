@@ -1,0 +1,99 @@
+---
+# MC14 : le rapport pour l'assureur. Daté, clair, lisible par un non-informaticien.
+#   ansible-playbook rapport-assureur.yml   ->  reports/rapport-assureur-AAAA-MM-JJ.html
+
+- name: État des Debian
+  hosts: linux
+  gather_facts: true
+  tasks:
+    - name: Mises à jour en attente
+      ansible.builtin.shell: set -o pipefail; apt list --upgradable 2>/dev/null | grep -c upgradable || true
+      args:
+        executable: /bin/bash
+      register: attente
+      changed_when: false
+
+    - name: Dont sécurité
+      ansible.builtin.shell: set -o pipefail; apt list --upgradable 2>/dev/null | grep -ci security || true
+      args:
+        executable: /bin/bash
+      register: attente_secu
+      changed_when: false
+
+    - name: Dernière mise à jour installée
+      ansible.builtin.shell: >
+        set -o pipefail; zgrep -h ' upgrade ' /var/log/dpkg.log* 2>/dev/null | sort | tail -1 | cut -c1-10
+      args:
+        executable: /bin/bash
+      register: derniere
+      changed_when: false
+
+    - name: Redémarrage en attente
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: rr
+
+    - name: Ligne du rapport
+      ansible.builtin.set_fact:
+        ligne:
+          machine: "{{ inventory_hostname }}"
+          systeme: "{{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}"
+          attente: "{{ attente.stdout | int }}"
+          secu: "{{ attente_secu.stdout | int }}"
+          redemarrage: "{{ rr.stat.exists }}"
+          derniere: "{{ derniere.stdout | default('-', true) }}"
+
+- name: État des Windows
+  hosts: windows
+  gather_facts: true
+  vars_files:
+    - vault/secrets.yml
+  tasks:
+    - name: Mises à jour disponibles (recherche seule, rien n'est installé)
+      ansible.windows.win_updates:
+        category_names: [SecurityUpdates, CriticalUpdates]
+        state: searched
+      register: wu
+
+    - name: Dernier correctif
+      ansible.windows.win_powershell:
+        script: |
+          $h = Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1
+          $Ansible.Result = $h.InstalledOn.ToString('yyyy-MM-dd')
+          $Ansible.Changed = $false
+      register: hotfix
+
+    - name: Ligne du rapport
+      ansible.builtin.set_fact:
+        ligne:
+          machine: "{{ inventory_hostname }}"
+          systeme: "{{ ansible_facts['os_name'] | default('Windows Server') }}"
+          attente: "{{ wu.found_update_count }}"
+          secu: "{{ wu.found_update_count }}"
+          redemarrage: "{{ wu.reboot_required }}"
+          derniere: "{{ hotfix.result }}"
+
+- name: Rapport
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Dossier
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/reports"
+        state: directory
+        mode: "0755"
+
+    - name: Page HTML
+      ansible.builtin.template:
+        src: templates/rapport-assureur.html.j2
+        dest: "{{ playbook_dir }}/reports/rapport-assureur-{{ now(fmt='%Y-%m-%d') }}.html"
+        mode: "0644"
+      vars:
+        lignes: "{{ groups['all'] | map('extract', hostvars) | selectattr('ligne', 'defined') | map(attribute='ligne') | sort(attribute='machine') | list }}"
+      register: rapport
+
+    - name: Où le trouver
+      ansible.builtin.debug:
+        msg: "Rapport : {{ rapport.dest }}"

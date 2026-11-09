@@ -1,0 +1,23 @@
+# Serveur de sauvegarde, à LILLE : une copie hors de la salle serveur de Dunkerque (MC11).
+# Les serveurs ne peuvent qu'AJOUTER des sauvegardes (mode "append-only") :
+# un pirate ou une erreur sur un serveur ne peut pas effacer ses sauvegardes.
+---
+- name: BorgBackup
+  ansible.builtin.apt:
+    name: [borgbackup]
+    state: present
+
+- name: Compte de sauvegarde
+  ansible.builtin.user:
+    name: borg
+    home: /srv/borg
+    shell: /bin/bash
+    system: true
+
+- name: Dossier des dépôts
+  ansible.builtin.file:
+    path: /srv/borg/depots
+    state: directory
+    owner: borg
+    group: borg
+    mode: "0700"

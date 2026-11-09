@@ -1,0 +1,105 @@
+---
+- name: Nom d'hôte
+  ansible.windows.win_hostname:
+    name: "{{ inventory_hostname }}"
+  register: baseline_hostname_result
+
+- name: Redémarrage si nécessaire
+  ansible.windows.win_reboot:
+  when: baseline_hostname_result.reboot_required
+
+- name: Fuseau horaire
+  ansible.windows.win_timezone:
+    timezone: "{{ win_timezone }}"
+
+- name: Serveurs NTP
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters
+    name: NtpServer
+    data: "{{ ntp_servers | map('regex_replace', '$', ',0x9') | join(' ') }}"
+    type: string
+    state: present
+  notify: Redémarrer w32time
+
+- name: Type de synchronisation
+  ansible.windows.win_regedit:
+    path: HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters
+    name: Type
+    data: NTP
+    type: string
+    state: present
+  notify: Redémarrer w32time
+
+- name: Service W32Time
+  ansible.windows.win_service:
+    name: W32Time
+    start_mode: auto
+    state: started
+
+- name: Compte admin
+  ansible.windows.win_user:
+    name: "{{ admin_user }}"
+    password: "{{ admin_password }}"
+    update_password: on_create
+    password_never_expires: true
+    state: present
+  no_log: true
+
+- name: Groupe Administrateurs
+  ansible.windows.win_group_membership:
+    name: Administrators
+    members:
+      - '.\{{ admin_user }}'
+    state: present
+
+- name: Service OpenSSH
+  ansible.windows.win_service:
+    name: sshd
+    start_mode: auto
+    state: started
+
+- name: Pare-feu SSH
+  community.windows.win_firewall_rule:
+    name: OpenSSH-Server-In-TCP
+    action: allow
+    direction: in
+    protocol: tcp
+    localport: 22
+    enabled: true
+    profiles: [domain, private, public]
+    state: present
+
+- name: Shell par défaut
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\OpenSSH
+    name: DefaultShell
+    data: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    type: string
+    state: present
+
+- name: Clé SSH admin
+  ansible.windows.win_copy:
+    content: "{{ admin_ssh_pubkey | trim }}\n"
+    dest: 'C:\ProgramData\ssh\administrators_authorized_keys'
+
+- name: Héritage ACL
+  ansible.windows.win_acl_inheritance:
+    path: 'C:\ProgramData\ssh\administrators_authorized_keys'
+    state: absent
+    reorganize: false
+
+- name: ACL Administrateurs
+  ansible.windows.win_acl:
+    path: 'C:\ProgramData\ssh\administrators_authorized_keys'
+    user: Administrators
+    rights: FullControl
+    type: allow
+    state: present
+
+- name: ACL SYSTEM
+  ansible.windows.win_acl:
+    path: 'C:\ProgramData\ssh\administrators_authorized_keys'
+    user: SYSTEM
+    rights: FullControl
+    type: allow
+    state: present

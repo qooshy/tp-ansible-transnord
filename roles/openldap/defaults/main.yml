@@ -1,0 +1,13 @@
+---
+ldap_presta_group: presta-trackr
+ldap_presta_gid: 30000
+# Les prestataires viennent de data/personnel.yml (même source de vérité que les salariés, MC13)
+ldap_prestataires: "{{ personnel | default([]) | selectattr('type', 'defined') | selectattr('type', 'eq', 'prestataire') | list }}"
+# Ceux dont la mission n'est pas terminée (les dates sont comparées au format AAAA-MM-JJ)
+ldap_ids_actifs: >-
+  {{ ldap_prestataires | map(attribute='expiration') | map('string')
+     | zip(ldap_prestataires | map(attribute='id'))
+     | selectattr('0', 'ge', now(fmt='%Y-%m-%d')) | map(attribute='1') | list }}
+ldap_prestataires_actifs: "{{ ldap_prestataires | selectattr('id', 'in', ldap_ids_actifs) | list }}"
+# Le compte qui sert au contrôle "interrogé en chiffré" (le premier en mission)
+ldap_check_user: "{{ ldap_ids_actifs | first | default('') }}"

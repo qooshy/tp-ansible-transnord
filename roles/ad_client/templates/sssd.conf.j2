@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+[sssd]
+domains = {{ ad_domain }}{% if sssd_prestataires | default(false) %}, prestataires{% endif %}
+
+config_file_version = 2
+services = nss, pam
+
+[domain/{{ ad_domain }}]
+id_provider = ad
+access_provider = simple
+ad_domain = {{ ad_domain }}
+krb5_realm = {{ ad_domain | upper }}
+realmd_tags = manages-system joined-with-adcli
+use_fully_qualified_names = False
+fallback_homedir = /home/%u
+default_shell = /bin/bash
+# Le lien tombe : les comptes déjà connus se connectent toujours (MC6)
+cache_credentials = True
+krb5_store_password_if_offline = True
+# Qui a le droit de se connecter
+simple_allow_groups = {{ ad_linux_admin_group | lower }}
+ad_gpo_access_control = permissive
+{% if sssd_prestataires | default(false) %}
+
+# MC7 : les prestataires, depuis OpenLDAP (ldap01), en StartTLS obligatoire.
+# Ils ne voient que cette machine, sans sudo.
+[domain/prestataires]
+id_provider = ldap
+auth_provider = ldap
+access_provider = simple
+simple_allow_groups = {{ ldap_presta_group }}
+ldap_uri = ldap://{{ hostvars[groups['ldap_servers'][0]].lan_ip }}
+ldap_search_base = {{ ldap_base }}
+ldap_user_search_base = ou=prestataires,{{ ldap_base }}
+ldap_group_search_base = ou=groupes,{{ ldap_base }}
+ldap_default_bind_dn = cn=sssd,ou=services,{{ ldap_base }}
+ldap_default_authtok = {{ vault_ldap_sssd_password }}
+ldap_id_use_start_tls = True
+ldap_tls_reqcert = demand
+ldap_tls_cacert = /etc/ssl/certs/ca-certificates.crt
+ldap_schema = rfc2307
+use_fully_qualified_names = False
+fallback_homedir = /home/%u
+default_shell = /bin/bash
+cache_credentials = False
+{% endif %}

@@ -1,0 +1,30 @@
+---
+- name: Forward IPv4
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    sysctl_file: /etc/sysctl.d/99-routeur.conf
+    reload: true
+
+- name: Installation de nftables
+  ansible.builtin.apt:
+    name: nftables
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Règles nftables
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: nft -c -f %s
+  notify: Recharger nftables
+
+- name: Service nftables
+  ansible.builtin.service:
+    name: nftables
+    enabled: true
+    state: started

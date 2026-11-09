@@ -1,0 +1,60 @@
+---
+# MC14 : la campagne du dimanche. Toutes les mises à jour, par vagues, une machine
+# à la fois, redémarrage seulement si nécessaire. Jamais les deux DC ensemble,
+# un site après l'autre. La moindre erreur arrête toute la campagne.
+#   ansible-playbook campagne-mises-a-jour.yml
+# Au quotidien, les correctifs de sécurité passent seuls (unattended-upgrades).
+
+- name: "Vague 0 - machine test : on valide sur mon01 d'abord"
+  hosts: monitoring
+  serial: 1
+  max_fail_percentage: 0
+  tags: [linux]
+  tasks:
+    - name: Mise à jour Linux
+      ansible.builtin.include_tasks: tasks/maj-linux.yml
+
+- name: Vague 1 - Dunkerque, serveurs Linux
+  hosts: "site_b:&linux:!monitoring"
+  order: sorted
+  serial: 1
+  max_fail_percentage: 0
+  tags: [linux]
+  tasks:
+    - name: Mise à jour Linux
+      ansible.builtin.include_tasks: tasks/maj-linux.yml
+
+- name: Vague 2 - DC02 (DC01 reste en service à Lille)
+  hosts: "dcs:&site_b"
+  serial: 1
+  max_fail_percentage: 0
+  tags: [windows]
+  vars_files:
+    - vault/secrets.yml
+  tasks:
+    - name: Mise à jour Windows
+      ansible.builtin.include_tasks: tasks/maj-windows.yml
+
+- name: Vague 3 - Lille, serveurs Linux
+  hosts: "site_a:&linux"
+  order: sorted
+  serial: 1
+  max_fail_percentage: 0
+  tags: [linux]
+  tasks:
+    - name: Mise à jour Linux
+      ansible.builtin.include_tasks: tasks/maj-linux.yml
+
+- name: Vague 4 - DC01 (DC02 est revenu entre-temps)
+  hosts: "dcs:&site_a"
+  serial: 1
+  max_fail_percentage: 0
+  tags: [windows]
+  vars_files:
+    - vault/secrets.yml
+  tasks:
+    - name: Mise à jour Windows
+      ansible.builtin.include_tasks: tasks/maj-windows.yml
+
+- name: Le rapport pour l'assureur
+  ansible.builtin.import_playbook: rapport-assureur.yml

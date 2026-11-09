@@ -1,0 +1,12 @@
+---
+# TrackR derrière nginx (MC11)
+interfaces:
+  - name: ens19                    # côté Dunkerque
+    address: 10.1.20.20/24
+    routes:
+      - { to: 10.1.0.0/16, via: 10.1.20.1 }   # pour aller chez les voisins, on passe par le routeur du site
+
+# MC7 : les prestataires (OpenLDAP) peuvent entrer sur web01, et nulle part ailleurs, sans sudo
+sssd_prestataires: true
+ssh_extra_allow_groups: [gg_admins_linux, presta-trackr]
+ssh_password_groups: [gg_admins_linux, presta-trackr]

@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Interface]
+Address = {{ wg_address }}
+ListenPort = {{ wg_port }}
+PrivateKey = {{ wg_private_key }}
+Table = off
+PostUp = ip link set dev %i multicast on
+
+[Peer]
+PublicKey = {{ wg_peer_pubkey }}
+Endpoint = {{ wg_peer_endpoint }}:{{ wg_port }}
+AllowedIPs = 0.0.0.0/0

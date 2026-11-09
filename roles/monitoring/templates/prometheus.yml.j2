@@ -1,0 +1,66 @@
+# {{ ansible_managed }}
+# La liste des cibles vient de l'inventaire : une machine ajoutée est surveillée.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: linux
+    static_configs:
+{% for h in groups['linux'] %}
+      - targets: ['{{ hostvars[h].lan_ip }}:9100']
+        labels: { host: {{ h }}, site: {{ hostvars[h].site_name | lower }} }
+{% endfor %}
+
+{% if groups['windows'] | default([]) %}
+  - job_name: windows
+    static_configs:
+{% for h in groups['windows'] %}
+      - targets: ['{{ hostvars[h].lan_ip }}:9182']
+        labels: { host: {{ h }}, site: {{ hostvars[h].site_name | lower }} }
+{% endfor %}
+{% endif %}
+
+{% macro sonde(job, module, cibles) %}
+  - job_name: {{ job }}
+    metrics_path: /probe
+    params:
+      module: [{{ module }}]
+    static_configs:
+{% for c in cibles %}
+      - targets: ['{{ c.cible }}']
+        labels: { host: {{ c.host }}, site: {{ c.site }} }
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
+{% endmacro %}
+{%- set web = [] %}{% for h in groups['trackr'] %}{% set _ = web.append({'cible': 'https://' ~ hostvars[h].lan_ip ~ '/health', 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('trackr', 'http_2xx', web) }}
+{%- set db = [] %}{% for h in groups['databases'] %}{% set _ = db.append({'cible': hostvars[h].lan_ip ~ ':5432', 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('postgresql', 'tcp_connect', db) }}
+{%- set ldap = [] %}{% for h in groups['ldap_servers'] %}{% set _ = ldap.append({'cible': hostvars[h].lan_ip ~ ':636', 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('annuaire_prestataires', 'tcp_tls', ldap) }}
+{% if groups['windows'] | default([]) %}
+{%- set dns = [] %}{% for h in groups['dcs'] %}{% set _ = dns.append({'cible': hostvars[h].lan_ip ~ ':53', 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('ad_dns', 'dns_ad', dns) }}
+{%- set ldaps = [] %}{% for h in groups['dcs'] %}{% set _ = ldaps.append({'cible': hostvars[h].lan_ip ~ ':636', 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('ad_ldaps', 'tcp_connect', ldaps) }}
+{% endif %}
+{#- Le tunnel : depuis MON01, on joint le routeur de l'AUTRE site par son adresse LAN : le ping traverse le tunnel #}
+{%- set tunnel = [] %}{% for h in groups['routers'] if hostvars[h].site_name != site_name %}{% set _ = tunnel.append({'cible': hostvars[h].lan_ip, 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('tunnel', 'icmp', tunnel) }}
+{%- set tous = [] %}{% for h in groups['linux'] + (groups['windows'] | default([])) %}{% set _ = tous.append({'cible': hostvars[h].lan_ip, 'host': h, 'site': hostvars[h].site_name | lower}) %}{% endfor %}
+{{ sonde('sites', 'icmp', tous) }}

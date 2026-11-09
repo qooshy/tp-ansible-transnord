@@ -1,0 +1,3 @@
+---
+- name: Redémarrer le VPN admin
+  ansible.builtin.service: { name: "wg-quick@{{ vpn_admin_if }}", state: restarted }

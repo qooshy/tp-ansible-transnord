@@ -1,0 +1,16 @@
+---
+- name: Interfaces
+  ansible.builtin.template:
+    src: iface.network.j2
+    dest: "/etc/systemd/network/20-{{ item.name }}.network"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ interfaces }}"
+  notify: Appliquer la configuration réseau
+
+- name: Service systemd-networkd
+  ansible.builtin.service:
+    name: systemd-networkd
+    enabled: true
+    state: started

@@ -1,0 +1,13 @@
+---
+# Windows dit « je suis là » bien avant qu'AD soit vraiment réveillé après un reboot.
+# Du coup on patiente jusqu'à ce qu'AD réponde pour de vrai.
+- name: Attendre qu'Active Directory réponde
+  ansible.windows.win_powershell:
+    script: |
+      $ErrorActionPreference = 'Stop'
+      $Ansible.Changed = $false
+      Get-ADDomain | Out-Null
+  register: ad_wait_ready
+  retries: 30
+  delay: 20
+  until: ad_wait_ready is succeeded

@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+GSSAPIAuthentication yes
+AllowGroups {{ ([ssh_admin_group] + ssh_extra_allow_groups) | join(' ') }}
+MaxAuthTries {{ ssh_max_auth_tries }}
+LoginGraceTime {{ ssh_login_grace_time }}
+X11Forwarding no
+LogLevel VERBOSE
+{% if ssh_password_groups %}
+
+# Les admins AD entrent avec leur mot de passe AD (le compte local reste par clé)
+Match Group {{ ssh_password_groups | join(',') }}
+    PasswordAuthentication yes
+{% endif %}

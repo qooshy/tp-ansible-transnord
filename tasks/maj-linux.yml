@@ -1,0 +1,18 @@
+---
+- name: Toutes les mises à jour
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Redémarrage nécessaire ? (Debian le dit elle-même)
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: rr
+
+- name: Redémarrage contrôlé
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+    msg: "Campagne de mises à jour LogiNord"
+  when: rr.stat.exists

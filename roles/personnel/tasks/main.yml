@@ -1,0 +1,7 @@
+---
+# Le rôle s'utilise en deux temps (voir personnel.yml) :
+#   tasks_from: ad     sur le DC principal
+#   tasks_from: linux  sur les Debian jointes au domaine
+- name: Rappel
+  ansible.builtin.debug:
+    msg: "Utiliser tasks_from: ad (DC principal) ou tasks_from: linux (Debian)."

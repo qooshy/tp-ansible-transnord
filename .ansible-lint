@@ -1,0 +1,7 @@
+---
+# admin_user, ntp_servers & co sont partagées entre plusieurs rôles, et c'est fait exprès.
+# Pas la peine de les préfixer avec le nom du rôle, on calme le lint là-dessus.
+skip_list:
+  - var-naming[no-role-prefix]
+exclude_paths:
+  - vault/

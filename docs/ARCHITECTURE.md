@@ -1,116 +1,86 @@
-# Architecture
+# Architecture de LogiNord
 
 ## Vue d'ensemble
 
-```mermaid
-flowchart LR
-  subgraph LILLE["Lille - siège (192.168.56.64/26)"]
-    DC02["dc02<br/>Annuaire AD + DNS<br/>(Samba AD)"]
-    BKP["bkp01<br/>Sauvegardes hors site"]
-    BUREAUX["Postes : direction, RH,<br/>compta, informatique"]
-  end
-  subgraph DK["Dunkerque - salle serveur (192.168.56.0/26)"]
-    DC01["dc01<br/>Annuaire AD + DNS + heure<br/>partage Paie (Samba AD)"]
-    LDAP["ldap01<br/>Annuaire prestataires<br/>(OpenLDAP)"]
-    VIP(("TrackR<br/>192.168.56.20"))
-    WEB1["web01<br/>TrackR + base"]
-    WEB2["web02<br/>TrackR + copie de la base"]
-    OPS["ops01<br/>Ansible, VPN, supervision,<br/>journaux centraux"]
-    QUAI["Postes du quai"]
-  end
-  INTERNET(("Informaticiens<br/>à distance"))
-
-  QUAI --> VIP
-  VIP --- WEB1
-  VIP -.bascule.- WEB2
-  WEB1 == copie continue ==> WEB2
-  DC01 <== réplication ==> DC02
-  WEB1 & WEB2 & OPS & LDAP -. sauvegarde chiffrée .-> BKP
-  INTERNET -- VPN WireGuard --> OPS
-  OPS -. surveille .-> DC01 & DC02 & WEB1 & WEB2 & LDAP & BKP
 ```
+            SITE A · LILLE (siège)                              SITE B · DUNKERQUE (quai, salle serveur)
+         LAN 10.1.10.0/24                                       LAN 10.1.20.0/24
+
+   ┌────────┐   ┌────────┐                               ┌────────┐ ┌────────┐ ┌────────┐
+   │  dc01  │   │ bkp01  │                               │  dc02  │ │ web01  │ │  db01  │
+   │ AD DNS │   │sauve-  │                               │ AD DNS │ │ TrackR │ │Postgre-│
+   │ DHCP   │   │gardes  │                               │        │ │ nginx  │ │  SQL   │
+   └───┬────┘   └───┬────┘                               └───┬────┘ └───┬────┘ └───┬────┘
+       │            │                                        │          │          │
+   ────┴────────────┴─────┐                         ┌────────┴──────────┴──────────┴────
+                          │                         │        ┌────────┐ ┌────────┐
+                     ┌────┴────┐   WAN 192.0.2.0/24 ┌┴───────┐│ mon01  │ │ ldap01 │
+  informaticiens ───►│  rtr-a  ├────────────────────┤ rtr-b  ││supervi-│ │presta- │
+  (VPN wg1)          │         │  tunnel WireGuard  │        ││sion    │ │taires  │
+                     └─────────┘  wg0 + OSPF        └────────┘└────────┘ └────────┘
+```
+
+La base du cours (MC1 à MC5) : les deux routeurs, le tunnel chiffré avec OSPF, le
+domaine `loginord.internal` avec un DC par site. Tout le reste est construit par-dessus.
 
 ## Les machines
 
-| Machine | Site | Système | Rôle | Pourquoi là |
+| Machine | Site | Système | Rôle | Cours |
 |---|---|---|---|---|
-| dc01 | Dunkerque | Debian 12 + Samba AD | Active Directory, DNS, référence de l'heure, partage Paie | Les serveurs sont à Dunkerque ; le quai doit pouvoir se connecter même liaison coupée |
-| dc02 | Lille | Debian 12 + Samba AD | Active Directory, DNS | Lille garde ses connexions si la liaison tombe ; second exemplaire de l'annuaire |
-| ldap01 | Dunkerque | Debian 12 | Annuaire des prestataires (OpenLDAP) | Les prestataires n'entrent jamais dans l'annuaire interne |
-| web01, web02 | Dunkerque | Debian 12 | TrackR (application + PostgreSQL + nginx), adresse flottante keepalived | Deux exemplaires : une panne d'un serveur ne bloque plus les camions |
-| ops01 | Dunkerque | Debian 12 | Ansible, VPN WireGuard, bastion SSH, Prometheus/Alertmanager/Grafana, journaux centraux | Le « poste de pilotage » de l'infrastructure |
-| bkp01 | Lille | Debian 12 | Sauvegardes (BorgBackup) | Hors du site des serveurs : un incendie à Dunkerque ne détruit pas les sauvegardes |
+| rtr-a, rtr-b | Lille, Dunkerque | Debian 13 | Routeur, pare-feu, tunnel WireGuard, OSPF ; rtr-a porte aussi le VPN des informaticiens | MC2 |
+| dc01 | Lille | Windows Server 2025 Core | AD DS, DNS, DHCP de Lille, LDAPS | MC4 |
+| dc02 | Dunkerque | Windows Server 2025 Core | AD DS, DNS de Dunkerque, LDAPS | MC5 |
+| web01 | Dunkerque | Debian 13 | TrackR (service durci) derrière nginx en HTTPS | MC11 |
+| db01 | Dunkerque | Debian 13 | PostgreSQL de TrackR, sauvegarde toutes les heures | MC11 |
+| ldap01 | Dunkerque | Debian 13 | OpenLDAP des prestataires | MC7 |
+| mon01 | Dunkerque | Debian 13 | Prometheus, Alertmanager, Grafana, journaux centraux | MC15 |
+| bkp01 | Lille | Debian 13 | Copie chiffrée des sauvegardes, hors de Dunkerque | MC11 (bonus) |
 
-Taille en production (indicatif) : 2 Go de RAM par serveur suffisent.
-Le labo tourne avec beaucoup moins (voir `hosts.yml`).
+## Les besoins du client et ce qui y répond
 
-## Choix techniques et raisons
+| Besoin | Réponse | Où |
+|---|---|---|
+| TrackR ne doit plus bloquer les camions | Service systemd qui redémarre seul (même après `kill -9`), durci, mémoire bornée ; supervisé comme un utilisateur toutes les 15 s | `roles/trackr`, `roles/monitoring` |
+| Dunkerque travaille si la liaison est coupée | TrackR, sa base et un DC sont à Dunkerque ; SSSD garde les identités en cache | base (MC5), `roles/ad_client` |
+| Ne jamais ressaisir, tout retrouver | Base sauvegardée toutes les heures, gardée 7 jours sur place et copiée chiffrée à Lille ; restauration testée | `roles/sauvegarde`, `restaurer-trackr.yml` |
+| Salaires : RH et direction uniquement | Groupes AGDLP (`DL_Partage_RH_RW` = `GG_RH`) prêts pour le partage de fs01 (MC10) | base (MC4) |
+| Un seul identifiant, changements de poste | `data/personnel.yml` tenu par les RH : arrivée, mobilité (`groups: set`), départ | `roles/personnel` |
+| Prestataires : le temps de la mission | Annuaire séparé (OpenLDAP), accès à web01 seulement, verrouillé à la date de fin | `roles/openldap` |
+| Prévenu avant les clients | Alertes en français par e-mail (et Discord) : TrackR, base, tunnel, DC, disque, sauvegarde | `roles/monitoring` |
+| Preuve pour l'assureur | Correctifs de sécurité chaque nuit, campagne du dimanche par vagues, rapport HTML daté | `socle_linux`, `campagne-mises-a-jour.yml`, `rapport-assureur.yml` |
+| Savoir qui a fait quoi | Journaux de toutes les Debian sur mon01 (3 mois), audit des commandes root, journal de TrackR | `socle_linux`, `roles/monitoring` |
+| Intervenir de chez soi | VPN WireGuard par informaticien sur rtr-a, puis compte `adm-` | `roles/vpn_admins` |
+| Reconstruire sans l'ancien informaticien | Ce dépôt : `site.yml` reconstruit tout, idempotent | tout le dépôt |
+| Un nouveau site sans y passer deux ans | Un routeur, un DC, un groupe d'inventaire, un réseau OSPF de plus | [RUNBOOK](RUNBOOK.md#ajouter-un-site) |
 
-| Sujet | Choix | Raison | Alternative écartée |
-|---|---|---|---|
-| Automatisation | **Ansible** | Imposé ; lisible (YAML), sans agent, gère Linux et Windows | — |
-| Annuaire des salariés | **Active Directory avec Samba AD** (Debian) | Compatible Windows : les PC du siège s'y joignent normalement et se gèrent avec les outils Microsoft (RSAT) ; un seul identifiant pour le PC, les serveurs Linux (realm join) et TrackR ; aucune licence ; 512 Mo de RAM par DC | Windows Server : ~1 000 € par serveur + licences d'accès, 4 fois plus de ressources ; essayé dans le labo puis écarté |
-| Annuaire des prestataires | **OpenLDAP** | Gratuit, léger ; séparation stricte : un prestataire n'a aucun compte dans l'AD | Comptes invités dans l'AD : risque d'accès trop large |
-| Haute disponibilité TrackR | **2 serveurs + keepalived + réplication PostgreSQL** | Simple, gratuit, bascule en quelques secondes | Cluster Kubernetes/Patroni : trop complexe pour une équipe de 1-2 personnes |
-| Saisie au quai | **File d'attente dans le navigateur** | Même si les 2 serveurs sont en panne, le quai continue ; aucune saisie perdue, aucun doublon (identifiant unique par saisie) | — |
-| Sauvegardes | **BorgBackup**, chiffré, dédupliqué, en ajout seul, à Lille | Un pirate qui prend un serveur ne peut pas effacer les sauvegardes ; un sinistre à Dunkerque non plus | Copies sur le même site : perdues avec lui |
-| Supervision | **Prometheus + Alertmanager + Grafana** | Standard, gratuit, alertes avant la panne (disque qui se remplit, certificat qui expire…) | Nagios/Zabbix : plus lourds à automatiser |
-| Journaux | **rsyslog** centralisé + **auditd** | Inclus dans Debian ; les journaux sortent du serveur (un intrus ne peut pas les effacer) | ELK : trop gourmand pour ce budget |
-| Accès distant | **WireGuard** + bastion SSH | Rapide, simple, un accès par personne, révocable | Ports ouverts sur Internet : interdit |
-| Chiffrement interne | **Autorité de certification interne** gérée par Ansible | Tout est chiffré (LDAPS, HTTPS, SMB3) sans acheter de certificats | Certificats auto-signés : avertissements, pas de vérification |
-| Secrets | **Ansible Vault** | Aucun mot de passe en clair dans le dépôt | — |
-| Labo | **Vagrant + VirtualBox** | Le même dépôt crée le labo sur un PC portable | — |
+## Choix techniques
 
-## Flux réseau
+| Sujet | Choix | Pourquoi |
+|---|---|---|
+| Supervision | **Prometheus + Grafana** plutôt que Zabbix | MON01 a peu de RAM : pas de base de données, agents légers (`node_exporter`, `windows_exporter`) |
+| Alertes | Alertmanager → e-mail, et webhook Discord si renseigné | Le canal est testé de bout en bout (`demo-disque-plein.yml`) |
+| Journaux | rsyslog → mon01, file d'attente sur disque | Rien de perdu si le tunnel tombe ; journald persistant en local |
+| Sauvegarde | `pg_dump` horaire + **BorgBackup** vers bkp01, en ajout seul | Un pirate sur db01 ne peut pas effacer les copies de Lille |
+| Prestataires | OpenLDAP + SSSD (deuxième domaine) sur web01 | Ils n'ont jamais de compte dans l'AD ; ils ne voient que web01 |
+| TrackR | Celui du cours, **non modifié** ; nginx devant | HTTPS, en-têtes de sécurité, TrackR n'écoute qu'en local |
+| Certificats | Autorité interne (sur le poste Ansible) pour ldap01 et web01 ; LDAPS des DC par `ad_ldaps` | Tout est chiffré sans acheter de certificats |
+| Accès distant | VPN dédié (`wg1`) séparé du tunnel inter-sites (`wg0`) | Un accès par personne, retiré automatiquement au départ |
+
+## Flux autorisés par les routeurs
 
 | De | Vers | Port | Usage |
 |---|---|---|---|
-| Postes, quai | VIP TrackR | 443 | Application TrackR (HTTPS) |
-| web01/web02 | dc01, dc02 | 636 | Connexion des salariés (LDAPS) |
-| web01/web02 | ldap01 | 636 | Connexion des prestataires (LDAPS) |
-| web01 ↔ web02 | | 5432, VRRP | Copie de la base, adresse flottante |
-| Tous | dc01, dc02 | 53, 88, 123, 389 | DNS, Kerberos, heure, annuaire |
-| Tous | ops01 | 514 | Journaux centralisés |
-| ops01 | tous | 22, 9100 | Ansible, supervision |
-| Tous (Linux) | bkp01 | 22 | Sauvegarde (clé SSH limitée à l'ajout) |
-| Internet | ops01 | 51820/udp | VPN des informaticiens |
+| LAN Lille ↔ LAN Dunkerque | | tout, via le tunnel | AD, réplication, sauvegardes |
+| mon01 | routeurs | 9100 | Mesures |
+| Internet (carte NAT) | rtr-a | 51821/udp | VPN des informaticiens |
+| VPN informaticiens | LAN | 22, 5985, 3000 | SSH, WinRM, Grafana, rien d'autre |
 
-Tout le reste est refusé par le pare-feu de chaque serveur (nftables).
+## Limites assumées
 
-## Sécurité des accès
-
-- **Un identifiant par personne**, dans l'AD, créé à partir du fichier des RH.
-- **Groupes par service** (`GG_RH`, `GG_Quai`…) : les droits suivent le poste.
-  Passer du quai aux bureaux = changer la colonne `service` → les groupes,
-  l'unité d'organisation et les droits TrackR changent au prochain déploiement.
-- **Départ** : statut `parti` → compte désactivé, retiré de tous les groupes,
-  VPN supprimé.
-- **Serveurs Linux** : seuls les membres de `GG_Admins_Linux` peuvent s'y connecter
-  et utiliser `sudo` ; un compte local `secours` (mot de passe dans le coffre)
-  sert si l'annuaire est hors service.
-- **Paie** : seuls `GG_RH` et `GG_Direction` ; dossier fermé à tous sur le
-  serveur ; partage invisible et chiffré (SMB3) ; chaque ouverture, modification,
-  suppression et chaque refus sont journalisés avec le nom de la personne.
-- **Prestataires** : ne lisent que leur propre fiche dans l'annuaire ;
-  TrackR en lecture seule, sans le nom des salariés ; compte verrouillé à la
-  date de fin (tâche quotidienne sur ldap01, indépendante d'Ansible).
-
-## Coûts
-
-| Poste | Coût |
-|---|---|
-| Tous les logiciels (Debian, Samba AD, PostgreSQL, OpenLDAP, Prometheus, Grafana, Borg, WireGuard, Ansible) | 0 € |
-| Économie par rapport à 2 Windows Server | ~2 000 € + licences d'accès (CAL) |
-| Matériel | 2 hyperviseurs (un par site) suffisent pour ces 7 VM |
-| Disque de sauvegarde à Lille | ~200 € |
-
-## Limites connues (et la suite)
-
-- Le partage Paie est sur un contrôleur de domaine pour économiser une machine ;
-  avec plus de budget, un serveur de fichiers dédié.
-- La bascule TrackR est automatique, le **retour** se fait par une commande
-  (`trackr-reconstruire-secours.yml`) : volontaire, pour éviter qu'un serveur
-  revenant d'une panne n'écrase des données récentes.
-- Samba AD ne réplique pas automatiquement le dossier SYSVOL (stratégies de groupe)
-  entre DC : si on utilise des GPO, les recopier (rsync) ou les déployer par Ansible.
-- Les comptes « vagrant » n'existent que dans le labo.
+- **fs01** (partages de fichiers, quotas, MC10), les **GPO** (MC8), le **RAID/LVM** de db01
+  (MC9) et le **pipeline GitLab** (MC12) ne sont pas dans ce périmètre ; les groupes AGDLP
+  et `personnel.yml` sont prêts à les accueillir.
+- TrackR du cours n'authentifie que l'AD (ou des comptes locaux) : les prestataires
+  accèdent à web01 (SSH), pas encore à l'interface TrackR.
+- Le labo sur PC n'a pas les DC Windows : la jonction AD et la connexion AD de TrackR
+  se testent sur le matériel de l'école.

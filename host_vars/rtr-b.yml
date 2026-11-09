@@ -1,0 +1,14 @@
+---
+interfaces:
+  - name: ens19                    # côté Dunkerque
+    address: 10.1.20.1/24
+  - name: ens20                    # côté WAN
+    address: 192.0.2.2/24
+wg_address: 10.255.0.2/30
+wg_private_key: "{{ vault_wg_rtr_b }}"
+wg_peer_pubkey: "{{ vault_wg_pub_rtr_a }}"   # wg pubkey < clé privée de rtr-a, rangée dans le vault
+wg_peer_endpoint: 192.0.2.1
+ospf_router_id: 10.255.0.2
+ospf_networks:
+  - 10.255.0.0/30
+  - 10.1.20.0/24

@@ -1,0 +1,6 @@
+---
+- name: Redémarrer trackr
+  ansible.builtin.systemd: { name: trackr, state: restarted, daemon_reload: true }
+
+- name: Recharger nginx
+  ansible.builtin.service: { name: nginx, state: reloaded }

@@ -1,0 +1,109 @@
+---
+# Sauvegarde chiffrée de chaque serveur vers bkp01 (Lille), par un timer systemd (MC11).
+# db01 : toutes les heures (le client accepte de perdre une heure au plus).
+- name: BorgBackup
+  ansible.builtin.apt:
+    name: borgbackup
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Clé SSH dédiée à la sauvegarde
+  community.crypto.openssh_keypair:
+    path: /root/.ssh/id_sauvegarde
+    type: ed25519
+    comment: "sauvegarde@{{ inventory_hostname }}"
+  register: cle_sauvegarde
+  when: not sauvegarde_locale
+
+- name: Ce serveur peut AJOUTER des sauvegardes dans SON dépôt, et rien d'autre
+  ansible.posix.authorized_key:
+    user: borg
+    key: "{{ cle_sauvegarde.public_key }}"
+    key_options: >-
+      command="borg serve --append-only --restrict-to-repository /srv/borg/depots/{{ inventory_hostname }}",restrict
+    state: present
+  delegate_to: "{{ sauvegarde_serveur }}"
+  throttle: 1                      # un serveur à la fois : même fichier sur bkp01
+  when: not sauvegarde_locale
+
+- name: Empreinte de bkp01
+  ansible.builtin.command: ssh-keyscan -t ed25519 {{ sauvegarde_serveur_ip }}
+  register: empreinte_bkp
+  changed_when: false
+  when: not sauvegarde_locale
+
+- name: bkp01 reconnu
+  ansible.builtin.known_hosts:
+    name: "{{ sauvegarde_serveur_ip }}"
+    key: "{{ empreinte_bkp.stdout_lines | select('match', '^[0-9]') | first }}"
+    path: /root/.ssh/known_hosts
+  when: not sauvegarde_locale
+
+- name: Dossiers des exports
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: [/var/backups/loginord, /var/backups/pg]
+
+- name: Phrase de chiffrement des sauvegardes
+  ansible.builtin.copy:
+    dest: /root/.borg-passphrase
+    content: "{{ vault_borg_passphrase }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Script de sauvegarde
+  ansible.builtin.template:
+    src: sauvegarde.sh.j2
+    dest: /usr/local/sbin/sauvegarde
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Service et timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: sauvegarde.service
+      content: |
+        [Unit]
+        Description=Sauvegarde LogiNord vers {{ sauvegarde_serveur }} (Lille)
+        After=network-online.target
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/sauvegarde
+        SyslogIdentifier=sauvegarde
+    - name: sauvegarde.timer
+      content: |
+        [Unit]
+        Description=Sauvegarde {{ sauvegarde_frequence }}
+        [Timer]
+        OnCalendar={{ sauvegarde_frequence }}
+        RandomizedDelaySec=120
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  loop_control: { label: "{{ item.name }}" }
+
+- name: Timer actif (systemctl list-timers montre la prochaine)
+  ansible.builtin.systemd:
+    name: sauvegarde.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Première sauvegarde (tant qu'aucune n'a réussi)
+  ansible.builtin.shell: >
+    grep -q '^backup_last_success' /var/lib/prometheus/node-exporter/sauvegarde.prom 2>/dev/null
+    && echo DEJA || systemctl start sauvegarde.service
+  register: premiere
+  changed_when: "'DEJA' not in premiere.stdout"

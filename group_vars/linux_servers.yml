@@ -1,0 +1,10 @@
+---
+# Les serveurs Linux prennent l'heure et le DNS sur les DC (MC6 : sinon Kerberos refuse tout)
+ntp_servers: "{{ site_dc_ips }}"
+dns_servers: "{{ site_dc_ips }}"
+
+# SSH (MC3 + MC6) : en plus du groupe local, le groupe AD des admins Linux.
+# sssd renvoie les noms de groupes en minuscules : on les écrit ainsi.
+ad_linux_admin_group: GG_Admins_Linux
+ssh_extra_allow_groups: ["{{ ad_linux_admin_group | lower }}"]
+ssh_password_groups: ["{{ ad_linux_admin_group | lower }}"]

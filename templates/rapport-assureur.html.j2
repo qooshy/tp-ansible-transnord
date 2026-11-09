@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<title>LogiNord - état des mises à jour</title>
+<style>
+ body{font:15px/1.5 system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#1d2433}
+ h1{font-size:1.4rem} table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid #dde3ea;padding:.5rem;text-align:left}
+ th{background:#eef1f5} .ok{color:#067647;font-weight:600} .ko{color:#b42318;font-weight:600} .muted{color:#5f6b7a}
+</style></head><body>
+<h1>LogiNord - état des mises à jour des serveurs</h1>
+<p class="muted">Rapport établi automatiquement le {{ now(fmt='%d/%m/%Y à %H:%M') }}.
+Les correctifs de sécurité s'installent chaque nuit ; les autres mises à jour sont appliquées le dimanche,
+serveur par serveur, sans interrompre l'activité.</p>
+{% set a_jour = (lignes | map(attribute='secu') | map('int') | sum) == 0 %}
+<p class="{{ 'ok' if a_jour else 'ko' }}">{{ 'Conclusion : aucun correctif de sécurité en attente.' if a_jour else 'Conclusion : des correctifs de sécurité restent à installer (en rouge).' }}</p>
+<table>
+<tr><th>Machine</th><th>Système</th><th>En attente (dont sécurité)</th><th>Redémarrage</th><th>Dernière mise à jour</th></tr>
+{% for l in lignes %}
+<tr><td>{{ l.machine }}</td><td>{{ l.systeme }}</td>
+<td class="{{ 'ok' if l.secu | int == 0 else 'ko' }}">{{ l.attente }} ({{ l.secu }})</td>
+<td>{{ 'Oui' if l.redemarrage | bool else 'Non' }}</td><td>{{ l.derniere }}</td></tr>
+{% endfor %}
+</table>
+</body></html>

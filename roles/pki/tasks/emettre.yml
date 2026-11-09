@@ -1,0 +1,28 @@
+---
+- name: "{{ cert.name }} - clé"
+  community.crypto.openssl_privatekey:
+    path: "{{ pki_dir }}/{{ cert.name }}.key"
+    type: RSA
+    size: 2048
+    mode: "0600"
+
+- name: "{{ cert.name }} - demande"
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ pki_dir }}/{{ cert.name }}.key"
+    common_name: "{{ cert.cn }}"
+    organization_name: LogiNord
+    subject_alt_name: "{{ cert.sans }}"
+    extended_key_usage: [serverAuth]
+    key_usage: [digitalSignature, keyEncipherment]
+  register: svc_csr
+  changed_when: false
+
+- name: "{{ cert.name }} - certificat (2 ans)"
+  community.crypto.x509_certificate:
+    path: "{{ pki_dir }}/{{ cert.name }}.crt"
+    csr_content: "{{ svc_csr.csr }}"
+    provider: ownca
+    ownca_path: "{{ pki_dir }}/{{ ca_name }}.crt"
+    ownca_privatekey_path: "{{ pki_dir }}/{{ ca_name }}.key"
+    ownca_not_after: "+730d"
+    mode: "0644"

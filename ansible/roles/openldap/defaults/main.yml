@@ -1,2 +1,0 @@
-# Compte utilisé pour le contrôle "interrogé en chiffré" en fin de rôle
-ldap_check_user: "{{ (prestataires | selectattr('statut', 'eq', 'actif') | selectattr('fin_mission', 'ge', now(fmt='%Y-%m-%d')) | first).identifiant }}"

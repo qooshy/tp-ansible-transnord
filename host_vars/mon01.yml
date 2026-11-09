@@ -1,0 +1,9 @@
+---
+# Supervision et journaux centralisés (MC15)
+interfaces:
+  - name: ens19                    # côté Dunkerque
+    address: 10.1.20.30/24
+    routes:
+      - { to: 10.1.0.0/16, via: 10.1.20.1 }   # pour aller chez les voisins, on passe par le routeur du site
+# Les tableaux de bord et l'historique des alertes
+sauvegarde_chemins_extra: [/var/lib/grafana/grafana.db]

@@ -1,0 +1,7 @@
+---
+# Un serveur Linux de Dunkerque tout prêt : copiez-le dans host_vars/web01.yml et c'est parti
+interfaces:
+  - name: ens19                    # côté Dunkerque
+    address: 10.1.20.20/24
+    routes:
+      - { to: 10.1.0.0/16, via: 10.1.20.1 }   # pour aller chez les voisins, on passe par rtr-b

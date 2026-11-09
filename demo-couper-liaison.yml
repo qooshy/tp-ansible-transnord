@@ -1,0 +1,21 @@
+---
+# DÉMO : la liaison Lille - Dunkerque tombe (on arrête le tunnel WireGuard sur rtr-b).
+# Dunkerque continue : TrackR, base et DC02 sont sur place. L'alerte part en ~1 min.
+#   ansible-playbook demo-couper-liaison.yml
+#   ansible-playbook demo-couper-liaison.yml -e retablir=oui
+- name: Tunnel inter-sites
+  hosts: rtr-b
+  gather_facts: false
+  vars:
+    retablir: non
+  tasks:
+    - name: "{{ 'Rétablir' if retablir == 'oui' else 'Couper' }} le tunnel"
+      ansible.builtin.service:
+        name: "wg-quick@{{ wg_if }}"
+        state: "{{ 'started' if retablir == 'oui' else 'stopped' }}"
+
+    - name: Message
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Liaison rétablie : OSPF réapprend les routes en quelques secondes.' if retablir == 'oui' else
+             'Liaison coupée. À montrer : TrackR fonctionne toujours, le tableau de bord passe au rouge, l alerte arrive.' }}
