@@ -45,7 +45,22 @@ consignes sont dans les notes orateur du PowerPoint (slides 4, 5 et 6).
 3. Ouvrir deux terminaux :
    - **Terminal PC** : dans le dossier du projet (pour `vagrant halt`)
    - **Terminal ops01** : `vagrant ssh ops01`, puis `cd /srv/infra/ansible`
-4. Vérifier que TrackR affiche en bas « Servi par **web01** ».
+4. Regarder en bas de TrackR quel serveur le sert (« Servi par web01 » ou
+   « web02 ») : c'est **ce serveur-là** qu'on débranche à la démo 1.
+
+### Si quelque chose ne démarre pas
+
+Le PC n'a pas de fichier d'échange : si la mémoire est pleine, une VM ne
+démarre pas ou démarre sans réseau. Fermer Discord et les onglets inutiles,
+puis :
+
+| Symptôme | Correction |
+|---|---|
+| `vagrant ssh ops01` : « VM must be running » | `VBoxManage discardstate transnord-ops01` puis `vagrant up ops01 --no-provision` |
+| `verifier.yml` : un serveur « UNREACHABLE » | `vagrant reload <serveur> --no-provision` |
+| Ce serveur est web01 ou web02 | En plus, dans ops01 : `bash ../scripts/deploy playbooks/ops/trackr-reconstruire-secours.yml -e serveur=<serveur>` (isolé, il s'est cru seul et a pris la main : on le remet en copie de secours) |
+
+`VBoxManage` se trouve dans `C:\Program Files\Oracle\VirtualBox\`.
 
 ---
 
@@ -56,8 +71,8 @@ consignes sont dans les notes orateur du PowerPoint (slides 4, 5 et 6).
 | # | Où | Geste | Ce que le public voit |
 |---|---|---|---|
 | 1 | TrackR | Saisir camion `AB-123-CD`, référence `EXP-0001`, heure prévue 30 min plus tôt, cliquer **Arrivée** | La ligne apparaît, marquée **RETARD** ; « Servi par web01 » |
-| 2 | Terminal PC | `vagrant halt web01 --force` | « Je débranche le serveur principal. » |
-| 3 | TrackR | Attendre 10 à 15 s | Bandeau rouge quelques secondes, puis **« Connecté - serveur web02 »** |
+| 2 | Terminal PC | `vagrant halt web01 --force` (ou `web02` si c'est lui qui sert) | « Je débranche le serveur principal. » |
+| 3 | TrackR | Attendre 10 à 15 s | Bandeau rouge quelques secondes, puis **« Connecté - serveur »** suivi de l'autre serveur |
 | 4 | TrackR | Saisir un 2e camion, cliquer **Arrivée** | La saisie passe normalement |
 
 À dire : « Personne n'a rien fait. Et l'équipe informatique vient de recevoir
@@ -98,11 +113,11 @@ sudo grep -h c.martin /var/log/central/dc01/* | tail -3
 
 ## 3. Remettre en état après la soutenance
 
-Sur le PC :
+Sur le PC (remplacer web01 par le serveur débranché) :
 ```bash
 vagrant up web01 --no-provision
 ```
-Puis dans le terminal ops01 (web01 redevient la copie de secours de web02) :
+Puis dans le terminal ops01 (il redevient la copie de secours de l'autre) :
 ```bash
 bash ../scripts/deploy playbooks/ops/trackr-reconstruire-secours.yml -e serveur=web01
 ```
