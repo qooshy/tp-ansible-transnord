@@ -17,5 +17,5 @@
     - name: Message
       ansible.builtin.debug:
         msg: >-
-          {{ 'Liaison rétablie : OSPF réapprend les routes en quelques secondes.' if retablir == 'oui' else
-             'Liaison coupée. À montrer : TrackR fonctionne toujours, le tableau de bord passe au rouge, l alerte arrive.' }}
+          {{ 'Liaison Lille - Dunkerque rétablie.' if retablir == 'oui' else
+             'Liaison Lille - Dunkerque coupée.' }}

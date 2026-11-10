@@ -30,4 +30,4 @@
 
     - name: Résultat
       ansible.builtin.debug:
-        msg: "TrackR tué (PID {{ avant.stdout }}), relancé seul par systemd (PID {{ apres.stdout }}). Les camions n'ont rien vu."
+        msg: "TrackR arrêté (PID {{ avant.stdout }}), redémarré par systemd (PID {{ apres.stdout }})."
